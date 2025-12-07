@@ -68,26 +68,17 @@ import { CONFIG, getCurrentSite, isOnShoppingTripsPage, processTripsData, create
 
                 data = await response.json();
             } else {
-                // Capital One Offers - need to find the right endpoint
-                // Try the shopping-trips endpoint with common parameters
-                const response = await fetch('/api/shopping-trips?version=2', {
+                // Capital One Offers - uses POST with specific URL pattern
+                const response = await fetch('/c1-offers/shopping-trips?limit=300&offset=0&version=2&_data=routes%2Fc1-offers.shopping-trips', {
+                    method: 'POST',
                     credentials: 'include'
                 });
 
                 if (!response.ok) {
-                    // Try alternate endpoint
-                    const altResponse = await fetch('/shopping-trips?_data=routes%2Fshopping-trips&version=2', {
-                        credentials: 'include'
-                    });
-
-                    if (!altResponse.ok) {
-                        throw new Error('Could not fetch data. Navigate to Shopping Trips page and try again.');
-                    }
-
-                    data = await altResponse.json();
-                } else {
-                    data = await response.json();
+                    throw new Error(`API returned ${response.status}`);
                 }
+
+                data = await response.json();
             }
 
             console.log('[C1 Tracker Bookmarklet] Fetched data:', data);

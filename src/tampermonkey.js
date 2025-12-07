@@ -100,15 +100,11 @@ import { CONFIG, getCurrentSite, isOnShoppingTripsPage, processTripsData, create
                 if (!response.ok) throw new Error(`API returned ${response.status}`);
                 data = await response.json();
             } else {
-                // Offers site - try multiple endpoints
-                let response = await fetch('/shopping-trips?_data=routes%2Fshopping-trips&version=2', {
+                // Offers site - uses POST with specific URL pattern
+                const response = await fetch('/c1-offers/shopping-trips?limit=300&offset=0&version=2&_data=routes%2Fc1-offers.shopping-trips', {
+                    method: 'POST',
                     credentials: 'include'
                 });
-                if (!response.ok) {
-                    response = await fetch('/api/shopping-trips?version=2', {
-                        credentials: 'include'
-                    });
-                }
                 if (!response.ok) throw new Error(`API returned ${response.status}`);
                 data = await response.json();
             }
