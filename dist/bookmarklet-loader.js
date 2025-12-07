@@ -2,4 +2,4 @@
 
 capitaloneshopping.com/account-settings/shopping-trips
 or
-capitaloneoffers.com/c1-offers/shopping-trips`);return}var t=document.createElement("script");t.src="https://cdn.jsdelivr.net/gh/willblaschko/capital-one-shopping-and-offers-tracker@main/dist/bookmarklet-full.js",t.onerror=function(){alert("Failed to load tracker script. Check your internet connection.")},document.body.appendChild(t)})();})();
+capitaloneoffers.com/c1-offers/shopping-trips`);return}var t=document.createElement("script");t.src="https://willblaschko.github.io/capital-one-shopping-and-offers-tracker/bookmarklet-full.js",t.onerror=function(){alert("Failed to load tracker script. Check your internet connection.")},document.body.appendChild(t)})();})();

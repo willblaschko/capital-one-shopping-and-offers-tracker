@@ -20,9 +20,9 @@
         return;
     }
 
-    // Load the full script
+    // Load the full script from GitHub Pages
     var s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/gh/willblaschko/capital-one-shopping-and-offers-tracker@main/dist/bookmarklet-full.js';
+    s.src = 'https://willblaschko.github.io/capital-one-shopping-and-offers-tracker/bookmarklet-full.js';
     s.onerror = function() {
         alert('Failed to load tracker script. Check your internet connection.');
     };
