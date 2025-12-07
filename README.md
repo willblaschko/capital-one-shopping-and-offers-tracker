@@ -2,6 +2,8 @@
 
 View hidden order amounts and cashback data for your Capital One Shopping trips.
 
+*From the makers of [UseYourCredits.com](https://useyourcredits.com/) — helping you get more from your credit cards.*
+
 ## Features
 
 - Shows order amounts (often hidden in the UI)

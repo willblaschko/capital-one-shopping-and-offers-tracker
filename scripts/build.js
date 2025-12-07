@@ -162,6 +162,7 @@ async function build() {
 <body>
     <h1>📋 C1 Shopping Tracker</h1>
     <p>Track your Capital One Shopping & Offers trips with hidden order and cashback data.</p>
+    <p style="font-size: 14px; color: #666; margin-top: -10px;">From the makers of <a href="https://useyourcredits.com/" style="color: #3949ab;">UseYourCredits.com</a> — helping you get more from your credit cards.</p>
 
     <h2>Install Bookmarklet</h2>
     <p>Drag one of these buttons to your bookmarks bar:</p>
