@@ -65,7 +65,7 @@
       id: raw.id ?? raw.tripId ?? null,
       tripId: raw.tripId ?? raw.trip_id ?? raw.id ?? null,
       orderId,
-      merchant: raw.vendor ?? raw.merchantName ?? raw.merchant ?? "Unknown",
+      merchant: raw.vendor ?? raw.merchantName ?? raw.merchant ?? raw.merchantDisplayName ?? "Unknown",
       domain: raw.domain ?? null,
       status: displayStatus,
       rawStatus,
