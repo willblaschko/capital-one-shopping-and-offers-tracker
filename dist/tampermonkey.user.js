@@ -49,9 +49,16 @@
     if (data.data?.items && Array.isArray(data.data.items)) return data.data.items;
     return [];
   }
+  function getRawValueCents(cents) {
+    if (!cents) {
+      return null;
+    }
+    const num = Number(cents);
+    return num / 100;
+  }
   function normalizeTrip(raw) {
-    const orderAmount = raw.orderAmount ?? raw.order_amount ?? null;
-    const creditAmount = raw.creditAmount ?? raw.credit_amount ?? null;
+    const orderAmount = raw.orderAmount ?? raw.order_amount ?? getRawValueCents(raw.trxnTotalCents) ?? null;
+    const creditAmount = raw.creditAmount ?? raw.credit_amount ?? getRawValueCents(raw.payoutAmountCents) ?? null;
     const orderId = raw.orderId ?? raw.order_id ?? null;
     const hasCreditAmount = creditAmount !== null && Number(creditAmount) > 0;
     let rawStatus = raw.status ?? "Unknown";
@@ -71,7 +78,7 @@
       rawStatus,
       orderAmount: orderAmount !== null ? Number(orderAmount) : null,
       creditAmount: creditAmount !== null ? Number(creditAmount) : null,
-      date: raw.createdAt ?? raw.created_at ?? raw.clickDate ?? null,
+      date: raw.createdAt ?? raw.created_at ?? raw.clickDate ?? raw.date ?? null,
       hasOrderId: orderId !== null,
       hasAmount: orderAmount !== null && Number(orderAmount) > 0,
       hasCreditAmount,

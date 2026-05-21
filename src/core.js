@@ -44,9 +44,17 @@ export function extractTripsArray(data) {
     return [];
 }
 
+export function getRawValueCents(cents) {
+    if (!cents) {
+        return null;
+    }
+    const num = Number(cents);
+    return num / 100.0;
+}
+
 export function normalizeTrip(raw) {
-    const orderAmount = raw.orderAmount ?? raw.order_amount ?? null;
-    const creditAmount = raw.creditAmount ?? raw.credit_amount ?? null;
+    const orderAmount = raw.orderAmount ?? raw.order_amount ?? getRawValueCents(raw.trxnTotalCents) ?? null;
+    const creditAmount = raw.creditAmount ?? raw.credit_amount ?? getRawValueCents(raw.payoutAmountCents) ?? null;
     const orderId = raw.orderId ?? raw.order_id ?? null;
     const hasCreditAmount = creditAmount !== null && Number(creditAmount) > 0;
 
@@ -69,7 +77,7 @@ export function normalizeTrip(raw) {
         rawStatus: rawStatus,
         orderAmount: orderAmount !== null ? Number(orderAmount) : null,
         creditAmount: creditAmount !== null ? Number(creditAmount) : null,
-        date: raw.createdAt ?? raw.created_at ?? raw.clickDate ?? null,
+        date: raw.createdAt ?? raw.created_at ?? raw.clickDate ?? raw.date ?? null,
         hasOrderId: orderId !== null,
         hasAmount: orderAmount !== null && Number(orderAmount) > 0,
         hasCreditAmount: hasCreditAmount,
@@ -522,9 +530,9 @@ export function createUI({ onOpen, processedData: initialData }) {
                     </thead>
                     <tbody id="c1t-tbody">
                         ${trips.map(t => {
-                            const rowClass = t.hasCreditAmount ? 'amt' : (t.hasOrderId ? 'tracked' : '');
-                            const statusClass = getStatusClass(t.status);
-                            return `
+            const rowClass = t.hasCreditAmount ? 'amt' : (t.hasOrderId ? 'tracked' : '');
+            const statusClass = getStatusClass(t.status);
+            return `
                                 <tr class="${rowClass}" data-filter-amount="${t.hasAmount}" data-filter-tracked="${t.hasOrderId}" data-filter-pending="${t.status.toLowerCase().includes('pending')}" data-filter-created="${t.status.toLowerCase() === 'created'}">
                                     <td title="${escapeHtml(t.domain)}">${escapeHtml(t.merchant)}</td>
                                     <td class="c">${formatDate(t.date)}</td>
@@ -534,7 +542,7 @@ export function createUI({ onOpen, processedData: initialData }) {
                                     <td class="c">${t.hasOrderId ? '✓' : '—'}</td>
                                 </tr>
                             `;
-                        }).join('')}
+        }).join('')}
                     </tbody>
                 </table>
             </div>
@@ -547,7 +555,7 @@ export function createUI({ onOpen, processedData: initialData }) {
         `;
 
         content.querySelectorAll('.c1t-filter-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
+            btn.addEventListener('click', function () {
                 content.querySelectorAll('.c1t-filter-btn').forEach(b => b.classList.remove('active'));
                 this.classList.add('active');
 
