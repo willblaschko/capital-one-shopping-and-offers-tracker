@@ -45,13 +45,17 @@ export function extractTripsArray(data) {
 }
 
 export function normalizeTrip(raw) {
-    const orderAmount = raw.orderAmount ?? raw.order_amount ?? null;
-    const creditAmount = raw.creditAmount ?? raw.credit_amount ?? null;
+    const orderAmount = raw.orderAmount ?? raw.order_amount ?? (raw.trxnTotalCents != null ? raw.trxnTotalCents / 100 : null);
+    const creditAmount = raw.creditAmount ?? raw.credit_amount ?? (raw.payoutAmountCents != null ? raw.payoutAmountCents / 100 : null);
     const orderId = raw.orderId ?? raw.order_id ?? null;
     const hasCreditAmount = creditAmount !== null && Number(creditAmount) > 0;
 
-    // Derive display status based on credit amount and raw status
+    // Derive display status based on credit amount and raw status.
+    // Miles API uses "Waiting"/"Inactive" — map to the canonical labels the display logic already understands.
     let rawStatus = raw.status ?? 'Unknown';
+    if (rawStatus === 'Waiting') rawStatus = 'Created';
+    else if (rawStatus === 'Inactive') rawStatus = 'Canceled';
+
     let displayStatus = rawStatus;
     if (hasCreditAmount && rawStatus.toLowerCase() === 'canceled') {
         displayStatus = 'Completed';
@@ -60,16 +64,16 @@ export function normalizeTrip(raw) {
     }
 
     return {
-        id: raw.id ?? raw.tripId ?? null,
-        tripId: raw.tripId ?? raw.trip_id ?? raw.id ?? null,
+        id: raw.id ?? raw.tripId ?? raw.activatedOfferId ?? null,
+        tripId: raw.tripId ?? raw.trip_id ?? raw.id ?? raw.activatedOfferId ?? null,
         orderId: orderId,
-        merchant: raw.vendor ?? raw.merchantName ?? raw.merchant ?? 'Unknown',
+        merchant: raw.vendor ?? raw.merchantName ?? raw.merchantDisplayName ?? raw.merchant ?? raw.domain ?? 'Unknown',
         domain: raw.domain ?? null,
         status: displayStatus,
         rawStatus: rawStatus,
         orderAmount: orderAmount !== null ? Number(orderAmount) : null,
         creditAmount: creditAmount !== null ? Number(creditAmount) : null,
-        date: raw.createdAt ?? raw.created_at ?? raw.clickDate ?? null,
+        date: raw.createdAt ?? raw.created_at ?? raw.clickDate ?? raw.date ?? null,
         hasOrderId: orderId !== null,
         hasAmount: orderAmount !== null && Number(orderAmount) > 0,
         hasCreditAmount: hasCreditAmount,

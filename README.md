@@ -4,6 +4,12 @@ View hidden order amounts and cashback data for your Capital One Shopping trips.
 
 *From the makers of [UseYourCredits.com](https://useyourcredits.com/) — helping you get more from your credit cards.*
 
+## What's New
+
+**2026-05-27**
+- Cap One Offers (miles) site updated to handle the new response shape (`merchantDisplayName`, `payoutAmountCents`, `trxnTotalCents`, `Waiting`/`Inactive` statuses).
+- Cap One Shopping (cashback) now falls back to `domain` when the `vendor` field is missing from a trip.
+
 ## Features
 
 - Shows order amounts (often hidden in the UI)
