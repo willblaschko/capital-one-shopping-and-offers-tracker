@@ -2,39 +2,56 @@
 // CORE - Shared logic for Capital One Shopping & Offers Tracker
 //=============================================================================
 
-export const CONFIG = {
+import type {
+    ConfigMap,
+    Site,
+    Mode,
+    RawTrip,
+    Trip,
+    TripsData,
+    CreateUIOptions,
+    UIHandle,
+    RenderFn
+} from './types.js';
+
+export const CONFIG: ConfigMap = {
     offers: {
         hostname: 'capitaloneoffers',
         pages: { trips: '/c1-offers/shopping-trips', browse: '/feed' },
         trips: {
-            apiPattern: (url) => url.includes('shopping-trips') && url.includes('version=2') && url.includes('_data='),
-            apiEndpoint: '/c1-offers/shopping-trips?limit=300&offset=0&version=2&_data=routes%2Fc1-offers.shopping-trips'
+            apiPattern: (url: string) =>
+                url.includes('shopping-trips') &&
+                url.includes('version=2') &&
+                url.includes('_data='),
+            apiEndpoint:
+                '/c1-offers/shopping-trips?limit=300&offset=0&version=2&_data=routes%2Fc1-offers.shopping-trips'
         },
         browse: {
-            apiPattern: (url) => url.includes('/feed/') && url.includes('viewInstanceId=')
+            apiPattern: (url: string) =>
+                url.includes('/feed/') && url.includes('viewInstanceId=')
         }
     },
     shopping: {
         hostname: 'capitaloneshopping',
         pages: { trips: '/account-settings/shopping-trips', browse: '/' },
         trips: {
-            apiPattern: (url) => url.includes('/api/v1/trip_orders'),
+            apiPattern: (url: string) => url.includes('/api/v1/trip_orders'),
             apiEndpoint: '/api/v1/trip_orders'
         },
         browse: {
-            apiPattern: (url) => url.endsWith('/api/v1/feed'),
+            apiPattern: (url: string) => url.endsWith('/api/v1/feed'),
             apiEndpoint: '/api/v1/feed'
         }
     }
 };
 
-export function getCurrentSite() {
+export function getCurrentSite(): Site | null {
     if (window.location.hostname.includes('capitaloneoffers')) return 'offers';
     if (window.location.hostname.includes('capitaloneshopping')) return 'shopping';
     return null;
 }
 
-export function detectMode() {
+export function detectMode(): Mode | null {
     const site = getCurrentSite();
     if (!site) return null;
     const p = window.location.pathname;
@@ -45,11 +62,11 @@ export function detectMode() {
     return null;
 }
 
-export function isOnShoppingTripsPage() {
+export function isOnShoppingTripsPage(): boolean {
     return detectMode() === 'trips';
 }
 
-export function isOnBrowsePage() {
+export function isOnBrowsePage(): boolean {
     return detectMode() === 'browse';
 }
 
@@ -57,20 +74,35 @@ export function isOnBrowsePage() {
 // DATA LAYER - Normalize API responses to standard format
 //=============================================================================
 
-export function extractTripsArray(data) {
+// `unknown` input — we probe the shape at runtime.
+export function extractTripsArray(data: unknown): RawTrip[] {
     if (!data) return [];
-    if (Array.isArray(data)) return data;
-    if (Array.isArray(data.items)) return data.items;
-    if (Array.isArray(data.shoppingTrips)) return data.shoppingTrips;
-    if (Array.isArray(data.trip_orders)) return data.trip_orders;
-    if (data.data && Array.isArray(data.data)) return data.data;
-    if (data.data?.items && Array.isArray(data.data.items)) return data.data.items;
+    if (Array.isArray(data)) return data as RawTrip[];
+    // After this point, treat `data` as an indexable object for shape probing.
+    const obj = data as Record<string, unknown>;
+    if (Array.isArray(obj.items)) return obj.items as RawTrip[];
+    if (Array.isArray(obj.shoppingTrips)) return obj.shoppingTrips as RawTrip[];
+    if (Array.isArray(obj.trip_orders)) return obj.trip_orders as RawTrip[];
+    if (obj.data && Array.isArray(obj.data)) return obj.data as RawTrip[];
+    if (
+        obj.data &&
+        typeof obj.data === 'object' &&
+        Array.isArray((obj.data as Record<string, unknown>).items)
+    ) {
+        return (obj.data as { items: RawTrip[] }).items;
+    }
     return [];
 }
 
-export function normalizeTrip(raw) {
-    const orderAmount = raw.orderAmount ?? raw.order_amount ?? (raw.trxnTotalCents != null ? raw.trxnTotalCents / 100 : null);
-    const creditAmount = raw.creditAmount ?? raw.credit_amount ?? (raw.payoutAmountCents != null ? raw.payoutAmountCents / 100 : null);
+export function normalizeTrip(raw: RawTrip): Trip {
+    const orderAmount =
+        raw.orderAmount ??
+        raw.order_amount ??
+        (raw.trxnTotalCents != null ? raw.trxnTotalCents / 100 : null);
+    const creditAmount =
+        raw.creditAmount ??
+        raw.credit_amount ??
+        (raw.payoutAmountCents != null ? raw.payoutAmountCents / 100 : null);
     const orderId = raw.orderId ?? raw.order_id ?? null;
     const hasCreditAmount = creditAmount !== null && Number(creditAmount) > 0;
 
@@ -80,7 +112,7 @@ export function normalizeTrip(raw) {
     if (rawStatus === 'Waiting') rawStatus = 'Created';
     else if (rawStatus === 'Inactive') rawStatus = 'Canceled';
 
-    let displayStatus = rawStatus;
+    let displayStatus: string = rawStatus;
     if (hasCreditAmount && rawStatus.toLowerCase() === 'canceled') {
         displayStatus = 'Completed';
     } else if (rawStatus.toLowerCase() === 'pending') {
@@ -89,15 +121,27 @@ export function normalizeTrip(raw) {
 
     return {
         id: raw.id ?? raw.tripId ?? raw.activatedOfferId ?? null,
-        tripId: raw.tripId ?? raw.trip_id ?? raw.id ?? raw.activatedOfferId ?? null,
+        tripId:
+            raw.tripId ?? raw.trip_id ?? raw.id ?? raw.activatedOfferId ?? null,
         orderId: orderId,
-        merchant: raw.vendor ?? raw.merchantName ?? raw.merchantDisplayName ?? raw.merchant ?? raw.domain ?? 'Unknown',
+        merchant:
+            raw.vendor ??
+            raw.merchantName ??
+            raw.merchantDisplayName ??
+            raw.merchant ??
+            raw.domain ??
+            'Unknown',
         domain: raw.domain ?? null,
         status: displayStatus,
         rawStatus: rawStatus,
         orderAmount: orderAmount !== null ? Number(orderAmount) : null,
         creditAmount: creditAmount !== null ? Number(creditAmount) : null,
-        date: raw.createdAt ?? raw.created_at ?? raw.clickDate ?? raw.date ?? null,
+        date:
+            raw.createdAt ??
+            raw.created_at ??
+            raw.clickDate ??
+            raw.date ??
+            null,
         hasOrderId: orderId !== null,
         hasAmount: orderAmount !== null && Number(orderAmount) > 0,
         hasCreditAmount: hasCreditAmount,
@@ -105,7 +149,7 @@ export function normalizeTrip(raw) {
     };
 }
 
-export function processTripsData(rawData) {
+export function processTripsData(rawData: unknown): TripsData {
     const rawTrips = extractTripsArray(rawData);
     const trips = rawTrips.map(normalizeTrip);
 
@@ -113,11 +157,14 @@ export function processTripsData(rawData) {
         trips,
         stats: {
             total: trips.length,
-            withOrderId: trips.filter(t => t.hasOrderId).length,
-            withAmount: trips.filter(t => t.hasAmount).length,
-            withCredit: trips.filter(t => t.hasCreditAmount).length,
-            pending: trips.filter(t => t.status.toLowerCase().includes('pending')).length,
-            created: trips.filter(t => t.status.toLowerCase() === 'created').length
+            withOrderId: trips.filter((t) => t.hasOrderId).length,
+            withAmount: trips.filter((t) => t.hasAmount).length,
+            withCredit: trips.filter((t) => t.hasCreditAmount).length,
+            pending: trips.filter((t) =>
+                t.status.toLowerCase().includes('pending')
+            ).length,
+            created: trips.filter((t) => t.status.toLowerCase() === 'created')
+                .length
         }
     };
 }
@@ -516,12 +563,12 @@ export const STYLES = `
     }
 `;
 
-export function formatCurrency(amount) {
+export function formatCurrency(amount: number | null | undefined): string {
     if (amount === null || amount === undefined || amount === 0) return '—';
     return '$' + Number(amount).toFixed(2);
 }
 
-export function formatDate(dateStr) {
+export function formatDate(dateStr: string | null | undefined): string {
     if (!dateStr) return '—';
     try {
         return new Date(dateStr).toLocaleDateString();
@@ -530,14 +577,14 @@ export function formatDate(dateStr) {
     }
 }
 
-export function escapeHtml(str) {
+export function escapeHtml(str: unknown): string {
     if (str == null) return '';
     const div = document.createElement('div');
     div.textContent = String(str);
     return div.innerHTML;
 }
 
-export function getStatusClass(status) {
+export function getStatusClass(status: string | null | undefined): string {
     const s = (status || '').toLowerCase();
     if (s.includes('completed')) return 'completed';
     if (s === 'pending ✓') return 'pending-good';
@@ -549,11 +596,140 @@ export function getStatusClass(status) {
     return '';
 }
 
-export function createUI({ onOpen, processedData: initialData }) {
-    let stylesInjected = false;
-    let currentData = initialData; // Mutable reference to current data
+//=============================================================================
+// Trips renderer — extracted from the old inline `renderDataToModal`.
+// Signature matches RenderFn<TripsData> so it can be plugged into createUI.
+//=============================================================================
 
-    function ensureStyles() {
+export const renderTripsToModal: RenderFn<TripsData> = (overlay, data) => {
+    console.log(
+        '[C1 Tracker] renderTripsToModal called - data:',
+        !!data,
+        'overlay:',
+        !!overlay
+    );
+    if (!data) return;
+
+    const { trips, stats } = data;
+    const content = overlay.querySelector('#c1t-content');
+    console.log(
+        '[C1 Tracker] renderTripsToModal - content element:',
+        !!content,
+        'trips:',
+        trips?.length
+    );
+    if (!content) return;
+
+    content.innerHTML = `
+        <div id="c1t-stats">
+            <span class="stat"><strong>${stats.total}</strong> total</span>
+            <span class="stat"><strong>${stats.withOrderId}</strong> tracked</span>
+            <span class="stat"><strong>${stats.withAmount}</strong> with amount</span>
+            <span class="stat"><strong>${stats.withCredit}</strong> with cashback</span>
+        </div>
+        <div id="c1t-filters">
+            <button class="c1t-filter-btn active" data-filter="all">All (${stats.total})</button>
+            <button class="c1t-filter-btn" data-filter="amount">With Amount (${stats.withAmount})</button>
+            <button class="c1t-filter-btn" data-filter="tracked">Tracked (${stats.withOrderId})</button>
+            <button class="c1t-filter-btn" data-filter="pending">Pending (${stats.pending})</button>
+            <button class="c1t-filter-btn" data-filter="created">Waiting (${stats.created})</button>
+        </div>
+        <div id="c1t-table-wrap">
+            <table id="c1t-table">
+                <thead>
+                    <tr>
+                        <th>Merchant</th>
+                        <th class="c">Date</th>
+                        <th class="r">Order</th>
+                        <th class="r">Cash Back</th>
+                        <th class="c">Status</th>
+                        <th class="c">Tracked</th>
+                    </tr>
+                </thead>
+                <tbody id="c1t-tbody">
+                    ${trips
+                        .map((t) => {
+                            const rowClass = t.hasCreditAmount
+                                ? 'amt'
+                                : t.hasOrderId
+                                ? 'tracked'
+                                : '';
+                            const statusClass = getStatusClass(t.status);
+                            return `
+                                <tr class="${rowClass}" data-filter-amount="${t.hasAmount}" data-filter-tracked="${t.hasOrderId}" data-filter-pending="${t.status
+                                .toLowerCase()
+                                .includes('pending')}" data-filter-created="${
+                                t.status.toLowerCase() === 'created'
+                            }">
+                                    <td title="${escapeHtml(t.domain)}">${escapeHtml(t.merchant)}</td>
+                                    <td class="c">${formatDate(t.date)}</td>
+                                    <td class="r ${t.hasAmount ? 'c1t-amount' : ''}">${formatCurrency(t.orderAmount)}</td>
+                                    <td class="r ${t.hasCreditAmount ? 'c1t-credit' : ''}">${formatCurrency(t.creditAmount)}</td>
+                                    <td class="c"><span class="c1t-status ${statusClass}">${escapeHtml(t.status)}</span></td>
+                                    <td class="c">${t.hasOrderId ? '✓' : '—'}</td>
+                                </tr>
+                            `;
+                        })
+                        .join('')}
+                </tbody>
+            </table>
+        </div>
+        <div id="c1t-footer">
+            <details>
+                <summary>Show Raw JSON</summary>
+                <pre>${escapeHtml(
+                    JSON.stringify(
+                        trips.slice(0, 30).map((t) => t.raw),
+                        null,
+                        2
+                    )
+                )}${
+        trips.length > 30
+            ? '\n\n... and ' + (trips.length - 30) + ' more'
+            : ''
+    }</pre>
+            </details>
+        </div>
+    `;
+
+    content.querySelectorAll<HTMLButtonElement>('.c1t-filter-btn').forEach((btn) => {
+        btn.addEventListener('click', function (this: HTMLButtonElement) {
+            content
+                .querySelectorAll<HTMLButtonElement>('.c1t-filter-btn')
+                .forEach((b) => b.classList.remove('active'));
+            this.classList.add('active');
+
+            const filter = this.dataset.filter;
+            content
+                .querySelectorAll<HTMLTableRowElement>('#c1t-tbody tr')
+                .forEach((row) => {
+                    if (filter === 'all') {
+                        row.style.display = '';
+                    } else if (filter) {
+                        const key = `filter${
+                            filter.charAt(0).toUpperCase() + filter.slice(1)
+                        }`;
+                        row.style.display =
+                            row.dataset[key] === 'true' ? '' : 'none';
+                    }
+                });
+        });
+    });
+};
+
+//=============================================================================
+// UI factory — generic over TData so the same skeleton powers trips & browse.
+//=============================================================================
+
+export function createUI<TData>(
+    options: CreateUIOptions<TData>
+): UIHandle<TData> {
+    const { onOpen, processedData: initialData, render, getBadgeCount } = options;
+
+    let stylesInjected = false;
+    let currentData: TData | null | undefined = initialData;
+
+    function ensureStyles(): void {
         if (stylesInjected && document.getElementById('c1t-styles')) return;
 
         let styleEl = document.getElementById('c1t-styles');
@@ -566,28 +742,27 @@ export function createUI({ onOpen, processedData: initialData }) {
         stylesInjected = true;
     }
 
-    function ensureFab() {
+    function ensureFab(): HTMLElement {
         ensureStyles();
 
-        let fab = document.getElementById('c1t-fab');
-        if (fab) return fab;
+        const existing = document.getElementById('c1t-fab');
+        if (existing) return existing;
 
-        fab = document.createElement('button');
+        const fab = document.createElement('button');
         fab.id = 'c1t-fab';
         fab.innerHTML = '📋';
         fab.title = 'Shopping Trips Tracker';
 
         fab.addEventListener('click', async () => {
-            ensureOverlay();
-            const overlay = document.getElementById('c1t-overlay');
-            if (overlay) overlay.classList.add('open');
+            const overlay = ensureOverlay();
+            overlay.classList.add('open');
 
             // If we don't have data, trigger fetch and wait for it
             if (!currentData && onOpen) {
                 await onOpen();
                 // Re-render after data arrives
                 if (currentData) {
-                    renderDataToModal(overlay, currentData);
+                    render(overlay, currentData);
                 }
             }
         });
@@ -601,13 +776,18 @@ export function createUI({ onOpen, processedData: initialData }) {
         return fab;
     }
 
-    function ensureOverlay() {
+    function ensureOverlay(): HTMLElement {
         ensureStyles();
 
         let overlay = document.getElementById('c1t-overlay');
         let isNew = false;
 
-        console.log('[C1 Tracker] ensureOverlay - existing:', !!overlay, 'currentData:', !!currentData, 'stats:', currentData?.stats);
+        console.log(
+            '[C1 Tracker] ensureOverlay - existing:',
+            !!overlay,
+            'currentData:',
+            !!currentData
+        );
 
         if (!overlay) {
             isNew = true;
@@ -626,112 +806,45 @@ export function createUI({ onOpen, processedData: initialData }) {
             `;
             document.body.appendChild(overlay);
 
-            overlay.querySelector('#c1t-close').addEventListener('click', () => overlay.classList.remove('open'));
-            overlay.addEventListener('click', (e) => {
-                if (e.target === overlay) overlay.classList.remove('open');
+            const overlayEl = overlay;
+            const closeBtn = overlayEl.querySelector('#c1t-close');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', () =>
+                    overlayEl.classList.remove('open')
+                );
+            }
+            overlayEl.addEventListener('click', (e) => {
+                if (e.target === overlayEl) overlayEl.classList.remove('open');
             });
         }
 
         // Always render data if we have it (handles case where data arrived after overlay was created)
-        console.log('[C1 Tracker] ensureOverlay - isNew:', isNew, 'currentData:', !!currentData, 'stats:', currentData?.stats);
+        console.log(
+            '[C1 Tracker] ensureOverlay - isNew:',
+            isNew,
+            'currentData:',
+            !!currentData
+        );
         if (currentData) {
-            renderDataToModal(overlay, currentData);
+            render(overlay, currentData);
         }
 
         return overlay;
     }
 
-    function updateFabState(fab, data) {
+    function updateFabState(fab: HTMLElement, data: TData): void {
         if (!data) return;
 
         fab.classList.add('has-data');
-        if (data.stats.withCredit > 0) {
-            fab.innerHTML = `📋<span class="badge">${data.stats.withCredit}</span>`;
+        const count = getBadgeCount(data);
+        if (count > 0) {
+            fab.innerHTML = `📋<span class="badge">${count}</span>`;
         } else {
             fab.innerHTML = '📋';
         }
     }
 
-    function renderDataToModal(overlay, data) {
-        console.log('[C1 Tracker] renderDataToModal called - data:', !!data, 'overlay:', !!overlay);
-        if (!data) return;
-
-        const { trips, stats } = data;
-        const content = overlay.querySelector('#c1t-content');
-        console.log('[C1 Tracker] renderDataToModal - content element:', !!content, 'trips:', trips?.length);
-        if (!content) return;
-
-        content.innerHTML = `
-            <div id="c1t-stats">
-                <span class="stat"><strong>${stats.total}</strong> total</span>
-                <span class="stat"><strong>${stats.withOrderId}</strong> tracked</span>
-                <span class="stat"><strong>${stats.withAmount}</strong> with amount</span>
-                <span class="stat"><strong>${stats.withCredit}</strong> with cashback</span>
-            </div>
-            <div id="c1t-filters">
-                <button class="c1t-filter-btn active" data-filter="all">All (${stats.total})</button>
-                <button class="c1t-filter-btn" data-filter="amount">With Amount (${stats.withAmount})</button>
-                <button class="c1t-filter-btn" data-filter="tracked">Tracked (${stats.withOrderId})</button>
-                <button class="c1t-filter-btn" data-filter="pending">Pending (${stats.pending})</button>
-                <button class="c1t-filter-btn" data-filter="created">Waiting (${stats.created})</button>
-            </div>
-            <div id="c1t-table-wrap">
-                <table id="c1t-table">
-                    <thead>
-                        <tr>
-                            <th>Merchant</th>
-                            <th class="c">Date</th>
-                            <th class="r">Order</th>
-                            <th class="r">Cash Back</th>
-                            <th class="c">Status</th>
-                            <th class="c">Tracked</th>
-                        </tr>
-                    </thead>
-                    <tbody id="c1t-tbody">
-                        ${trips.map(t => {
-                            const rowClass = t.hasCreditAmount ? 'amt' : (t.hasOrderId ? 'tracked' : '');
-                            const statusClass = getStatusClass(t.status);
-                            return `
-                                <tr class="${rowClass}" data-filter-amount="${t.hasAmount}" data-filter-tracked="${t.hasOrderId}" data-filter-pending="${t.status.toLowerCase().includes('pending')}" data-filter-created="${t.status.toLowerCase() === 'created'}">
-                                    <td title="${escapeHtml(t.domain)}">${escapeHtml(t.merchant)}</td>
-                                    <td class="c">${formatDate(t.date)}</td>
-                                    <td class="r ${t.hasAmount ? 'c1t-amount' : ''}">${formatCurrency(t.orderAmount)}</td>
-                                    <td class="r ${t.hasCreditAmount ? 'c1t-credit' : ''}">${formatCurrency(t.creditAmount)}</td>
-                                    <td class="c"><span class="c1t-status ${statusClass}">${escapeHtml(t.status)}</span></td>
-                                    <td class="c">${t.hasOrderId ? '✓' : '—'}</td>
-                                </tr>
-                            `;
-                        }).join('')}
-                    </tbody>
-                </table>
-            </div>
-            <div id="c1t-footer">
-                <details>
-                    <summary>Show Raw JSON</summary>
-                    <pre>${escapeHtml(JSON.stringify(trips.slice(0, 30).map(t => t.raw), null, 2))}${trips.length > 30 ? '\n\n... and ' + (trips.length - 30) + ' more' : ''}</pre>
-                </details>
-            </div>
-        `;
-
-        content.querySelectorAll('.c1t-filter-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                content.querySelectorAll('.c1t-filter-btn').forEach(b => b.classList.remove('active'));
-                this.classList.add('active');
-
-                const filter = this.dataset.filter;
-                content.querySelectorAll('#c1t-tbody tr').forEach(row => {
-                    if (filter === 'all') {
-                        row.style.display = '';
-                    } else {
-                        const key = `filter${filter.charAt(0).toUpperCase() + filter.slice(1)}`;
-                        row.style.display = row.dataset[key] === 'true' ? '' : 'none';
-                    }
-                });
-            });
-        });
-    }
-
-    // Escape key handler
+    // Escape key handler — module-level (not bound to a specific overlay).
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             const overlay = document.getElementById('c1t-overlay');
@@ -744,14 +857,13 @@ export function createUI({ onOpen, processedData: initialData }) {
         ensureFab,
         ensureOverlay,
         updateFabState,
-        renderDataToModal,
-        updateData(data) {
-            console.log('[C1 Tracker] updateData called with stats:', data?.stats);
-            currentData = data; // Update the mutable reference
+        updateData(data: TData) {
+            console.log('[C1 Tracker] updateData called');
+            currentData = data;
             const fab = document.getElementById('c1t-fab');
             if (fab) updateFabState(fab, data);
             const overlay = document.getElementById('c1t-overlay');
-            if (overlay) renderDataToModal(overlay, data);
+            if (overlay) render(overlay, data);
         }
     };
 }

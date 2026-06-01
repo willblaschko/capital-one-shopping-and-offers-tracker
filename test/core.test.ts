@@ -1,0 +1,393 @@
+//=============================================================================
+// Tests for src/core.ts — detectMode, normalizers, processTripsData,
+// extractTripsArray, createUI, renderTripsToModal.
+//=============================================================================
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import type { RawTrip, TripsData, RenderFn } from '../src/types.js';
+import {
+    detectMode,
+    getCurrentSite,
+    isOnShoppingTripsPage,
+    isOnBrowsePage,
+    extractTripsArray,
+    normalizeTrip,
+    processTripsData,
+    createUI,
+    renderTripsToModal,
+    formatCurrency,
+    formatDate,
+    escapeHtml,
+    getStatusClass
+} from '../src/core.js';
+
+const originalHref = window.location.href;
+
+function setUrl(url: string): void {
+    window.location.href = url;
+}
+
+afterEach(() => {
+    window.location.href = originalHref;
+});
+
+//-----------------------------------------------------------------------------
+// detectMode — URL routing
+//-----------------------------------------------------------------------------
+
+describe('detectMode', () => {
+    it('returns "trips" on capitaloneshopping shopping-trips path', () => {
+        setUrl('https://capitaloneshopping.com/account-settings/shopping-trips');
+        expect(detectMode()).toBe('trips');
+    });
+
+    it('returns "trips" on capitaloneoffers c1-offers/shopping-trips path', () => {
+        setUrl('https://capitaloneoffers.com/c1-offers/shopping-trips');
+        expect(detectMode()).toBe('trips');
+    });
+
+    it('returns "browse" on capitaloneshopping root path', () => {
+        setUrl('https://capitaloneshopping.com/');
+        expect(detectMode()).toBe('browse');
+    });
+
+    it('returns "browse" on capitaloneshopping bare host (empty path treated as root)', () => {
+        // happy-dom always populates `/` for "https://host"; explicitly verify the `/` branch.
+        setUrl('https://capitaloneshopping.com');
+        expect(detectMode()).toBe('browse');
+    });
+
+    it('returns "browse" on capitaloneoffers /feed', () => {
+        setUrl('https://capitaloneoffers.com/feed');
+        expect(detectMode()).toBe('browse');
+    });
+
+    it('returns "browse" on capitaloneoffers /feed/<anything>', () => {
+        setUrl('https://capitaloneoffers.com/feed/whatever');
+        expect(detectMode()).toBe('browse');
+    });
+
+    it('returns null on capitaloneshopping non-trips/non-root path', () => {
+        setUrl('https://capitaloneshopping.com/account-settings/profile');
+        expect(detectMode()).toBe(null);
+    });
+
+    it('returns null on unrelated host', () => {
+        setUrl('https://example.com/');
+        expect(detectMode()).toBe(null);
+    });
+
+    it('isOnShoppingTripsPage agrees with detectMode === "trips"', () => {
+        setUrl('https://capitaloneshopping.com/account-settings/shopping-trips');
+        expect(isOnShoppingTripsPage()).toBe(true);
+        setUrl('https://capitaloneshopping.com/');
+        expect(isOnShoppingTripsPage()).toBe(false);
+    });
+
+    it('isOnBrowsePage agrees with detectMode === "browse"', () => {
+        setUrl('https://capitaloneoffers.com/feed');
+        expect(isOnBrowsePage()).toBe(true);
+        setUrl('https://capitaloneoffers.com/c1-offers/shopping-trips');
+        expect(isOnBrowsePage()).toBe(false);
+    });
+
+    it('getCurrentSite distinguishes shopping vs offers vs unknown', () => {
+        setUrl('https://capitaloneshopping.com/');
+        expect(getCurrentSite()).toBe('shopping');
+        setUrl('https://capitaloneoffers.com/feed');
+        expect(getCurrentSite()).toBe('offers');
+        setUrl('https://example.com/');
+        expect(getCurrentSite()).toBe(null);
+    });
+});
+
+//-----------------------------------------------------------------------------
+// normalizeTrip — fallback chains and status mapping
+//-----------------------------------------------------------------------------
+
+describe('normalizeTrip', () => {
+    it('falls back through vendor → merchantName → merchantDisplayName → merchant → domain → "Unknown"', () => {
+        // vendor wins
+        expect(
+            normalizeTrip({ vendor: 'V', merchantName: 'M', domain: 'd.com' }).merchant
+        ).toBe('V');
+        // merchantName when vendor missing
+        expect(
+            normalizeTrip({ merchantName: 'M', merchantDisplayName: 'MD' }).merchant
+        ).toBe('M');
+        // merchantDisplayName when vendor + merchantName missing
+        expect(normalizeTrip({ merchantDisplayName: 'MD' }).merchant).toBe('MD');
+        // merchant when above all missing
+        expect(normalizeTrip({ merchant: 'MX' }).merchant).toBe('MX');
+        // domain as next fallback
+        expect(normalizeTrip({ domain: 'shop.example.com' }).merchant).toBe(
+            'shop.example.com'
+        );
+        // "Unknown" when literally nothing
+        expect(normalizeTrip({}).merchant).toBe('Unknown');
+    });
+
+    it('handles miles-side fields: payoutAmountCents/trxnTotalCents cents→dollars, activatedOfferId id, date', () => {
+        const raw: RawTrip = {
+            activatedOfferId: 'offer-abc',
+            merchantDisplayName: 'Marriott',
+            trxnTotalCents: 12345, // → $123.45
+            payoutAmountCents: 678, // → $6.78
+            date: '2025-04-01T00:00:00Z',
+            status: 'Waiting',
+            accountCurrency: 'miles'
+        };
+        const t = normalizeTrip(raw);
+        expect(t.merchant).toBe('Marriott');
+        expect(t.orderAmount).toBe(123.45);
+        expect(t.creditAmount).toBe(6.78);
+        expect(t.id).toBe('offer-abc');
+        expect(t.tripId).toBe('offer-abc');
+        expect(t.date).toBe('2025-04-01T00:00:00Z');
+    });
+
+    it('maps raw status "Waiting" → "Created" and "Inactive" → "Canceled"', () => {
+        const waiting = normalizeTrip({ vendor: 'V', status: 'Waiting' });
+        expect(waiting.rawStatus).toBe('Created');
+        expect(waiting.status).toBe('Created');
+
+        const inactive = normalizeTrip({ vendor: 'V', status: 'Inactive' });
+        expect(inactive.rawStatus).toBe('Canceled');
+        expect(inactive.status).toBe('Canceled');
+    });
+
+    it('Pending with credit becomes "Pending ✓"; without credit becomes "Pending ?"', () => {
+        const good = normalizeTrip({
+            vendor: 'V',
+            status: 'Pending',
+            creditAmount: 5
+        });
+        expect(good.status).toBe('Pending ✓');
+
+        const uncertain = normalizeTrip({ vendor: 'V', status: 'Pending' });
+        expect(uncertain.status).toBe('Pending ?');
+    });
+
+    it('Canceled (lowercase) with credit becomes "Completed"', () => {
+        const t = normalizeTrip({
+            vendor: 'V',
+            status: 'canceled',
+            creditAmount: 9.99
+        });
+        expect(t.status).toBe('Completed');
+    });
+
+    it('preserves raw object and computes hasAmount/hasCreditAmount/hasOrderId flags', () => {
+        const raw: RawTrip = {
+            vendor: 'V',
+            orderId: 'o-1',
+            orderAmount: 50,
+            creditAmount: 2
+        };
+        const t = normalizeTrip(raw);
+        expect(t.raw).toBe(raw);
+        expect(t.hasOrderId).toBe(true);
+        expect(t.hasAmount).toBe(true);
+        expect(t.hasCreditAmount).toBe(true);
+    });
+});
+
+//-----------------------------------------------------------------------------
+// processTripsData — stats across a mixed fixture
+//-----------------------------------------------------------------------------
+
+describe('processTripsData', () => {
+    it('computes stats over a mixed-status fixture', () => {
+        const raw = [
+            // tracked w/ credit (counts: total, withOrderId, withAmount, withCredit, NOT pending, NOT created)
+            { vendor: 'A', orderId: '1', orderAmount: 10, creditAmount: 1, status: 'Completed' },
+            // tracked, amount, no credit (counts: total, withOrderId, withAmount)
+            { vendor: 'B', orderId: '2', orderAmount: 20, creditAmount: 0, status: 'Created' },
+            // pending w/ credit
+            { vendor: 'C', orderId: '3', orderAmount: 30, creditAmount: 1.5, status: 'Pending' },
+            // pending no credit
+            { vendor: 'D', orderId: '4', orderAmount: 0, creditAmount: 0, status: 'Pending' },
+            // no orderId, no amount (i.e. minimal raw)
+            { vendor: 'E', status: 'Canceled' }
+        ];
+        const out = processTripsData(raw);
+        expect(out.stats.total).toBe(5);
+        expect(out.stats.withOrderId).toBe(4);
+        expect(out.stats.withAmount).toBe(3); // A, B, C
+        expect(out.stats.withCredit).toBe(2); // A, C
+        expect(out.stats.pending).toBe(2); // C ("Pending ✓"), D ("Pending ?")
+        expect(out.stats.created).toBe(1); // B
+        expect(out.trips).toHaveLength(5);
+    });
+
+    it('returns zeroed stats for empty input', () => {
+        const out = processTripsData({});
+        expect(out.trips).toEqual([]);
+        expect(out.stats).toEqual({
+            total: 0,
+            withOrderId: 0,
+            withAmount: 0,
+            withCredit: 0,
+            pending: 0,
+            created: 0
+        });
+    });
+});
+
+//-----------------------------------------------------------------------------
+// extractTripsArray — six nested shapes
+//-----------------------------------------------------------------------------
+
+describe('extractTripsArray', () => {
+    const sentinel: RawTrip[] = [{ vendor: 'X' }];
+
+    it('returns top-level array as-is', () => {
+        expect(extractTripsArray(sentinel)).toBe(sentinel);
+    });
+
+    it('unwraps data.items', () => {
+        expect(extractTripsArray({ items: sentinel })).toBe(sentinel);
+    });
+
+    it('unwraps data.shoppingTrips', () => {
+        expect(extractTripsArray({ shoppingTrips: sentinel })).toBe(sentinel);
+    });
+
+    it('unwraps data.trip_orders', () => {
+        expect(extractTripsArray({ trip_orders: sentinel })).toBe(sentinel);
+    });
+
+    it('unwraps data.data when data.data is an array', () => {
+        expect(extractTripsArray({ data: sentinel })).toBe(sentinel);
+    });
+
+    it('unwraps data.data.items', () => {
+        expect(extractTripsArray({ data: { items: sentinel } })).toBe(sentinel);
+    });
+
+    it('returns [] on null / undefined / non-matching shape', () => {
+        expect(extractTripsArray(null)).toEqual([]);
+        expect(extractTripsArray(undefined)).toEqual([]);
+        expect(extractTripsArray({ unrelated: 1 })).toEqual([]);
+    });
+});
+
+//-----------------------------------------------------------------------------
+// createUI smoke test — injected render is wired through updateData
+//-----------------------------------------------------------------------------
+
+describe('createUI', () => {
+    beforeEach(() => {
+        document.body.innerHTML = '';
+        document.head.innerHTML = '';
+    });
+
+    it('calls injected render with (overlay, data) when updateData runs after ensureOverlay', () => {
+        const renderMock = vi.fn<RenderFn<{ count: number }>>();
+        const ui = createUI<{ count: number }>({
+            render: renderMock,
+            getBadgeCount: (d) => d.count
+        });
+
+        const overlay = ui.ensureOverlay();
+        const fakeData = { count: 7 };
+        ui.updateData(fakeData);
+
+        expect(renderMock).toHaveBeenCalled();
+        const lastCall = renderMock.mock.calls[renderMock.mock.calls.length - 1];
+        expect(lastCall[0]).toBe(overlay);
+        expect(lastCall[1]).toBe(fakeData);
+    });
+
+    it('updateFabState writes badge based on getBadgeCount return', () => {
+        const ui = createUI<{ count: number }>({
+            render: vi.fn(),
+            getBadgeCount: (d) => d.count
+        });
+        ui.ensureStyles();
+        const fab = ui.ensureFab();
+
+        ui.updateData({ count: 0 });
+        expect(fab.classList.contains('has-data')).toBe(true);
+        expect(fab.innerHTML).toBe('📋'); // no badge when count===0
+
+        ui.updateData({ count: 12 });
+        expect(fab.innerHTML).toContain('class="badge"');
+        expect(fab.innerHTML).toContain('12');
+    });
+});
+
+//-----------------------------------------------------------------------------
+// renderTripsToModal — actual DOM output for a small trips fixture
+//-----------------------------------------------------------------------------
+
+describe('renderTripsToModal', () => {
+    beforeEach(() => {
+        document.body.innerHTML = '';
+    });
+
+    it('renders merchant names and stats into #c1t-content', () => {
+        const overlay = document.createElement('div');
+        overlay.id = 'c1t-overlay';
+        overlay.innerHTML = '<div id="c1t-content"></div>';
+        document.body.appendChild(overlay);
+
+        const data: TripsData = processTripsData([
+            { vendor: 'Chewy', orderId: '1', orderAmount: 50, creditAmount: 2, status: 'Completed' },
+            { vendor: 'Marriott', orderId: '2', orderAmount: 200, creditAmount: 0, status: 'Created' }
+        ]);
+
+        renderTripsToModal(overlay, data);
+
+        const html = overlay.innerHTML;
+        expect(html).toContain('Chewy');
+        expect(html).toContain('Marriott');
+        // stats reflected
+        expect(html).toContain('<strong>2</strong> total');
+        expect(html).toContain('<strong>2</strong> tracked');
+        expect(html).toContain('<strong>1</strong> with cashback');
+        // table body wired
+        expect(overlay.querySelector('#c1t-tbody')).not.toBeNull();
+        const rows = overlay.querySelectorAll('#c1t-tbody tr');
+        expect(rows.length).toBe(2);
+    });
+
+    it('returns early without throwing if overlay has no #c1t-content', () => {
+        const overlay = document.createElement('div');
+        const data: TripsData = processTripsData([]);
+        expect(() => renderTripsToModal(overlay, data)).not.toThrow();
+    });
+});
+
+//-----------------------------------------------------------------------------
+// Small helpers (defensive coverage — they're used by both renderers)
+//-----------------------------------------------------------------------------
+
+describe('helpers', () => {
+    it('formatCurrency renders dash for null/0 and dollars otherwise', () => {
+        expect(formatCurrency(null)).toBe('—');
+        expect(formatCurrency(undefined)).toBe('—');
+        expect(formatCurrency(0)).toBe('—');
+        expect(formatCurrency(12.5)).toBe('$12.50');
+    });
+
+    it('formatDate returns dash for null/empty', () => {
+        expect(formatDate(null)).toBe('—');
+        expect(formatDate('')).toBe('—');
+    });
+
+    it('escapeHtml escapes angle brackets and treats null as empty', () => {
+        expect(escapeHtml('<script>')).toBe('&lt;script&gt;');
+        expect(escapeHtml(null)).toBe('');
+    });
+
+    it('getStatusClass maps known labels to CSS classes', () => {
+        expect(getStatusClass('Completed')).toBe('completed');
+        expect(getStatusClass('Pending ✓')).toBe('pending-good');
+        expect(getStatusClass('Pending ?')).toBe('pending-uncertain');
+        expect(getStatusClass('Created')).toBe('created');
+        expect(getStatusClass('Canceled')).toBe('canceled');
+        expect(getStatusClass('Adjusted')).toBe('adjusted');
+        expect(getStatusClass('Unknown')).toBe('');
+    });
+});
