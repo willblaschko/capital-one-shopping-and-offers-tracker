@@ -44,11 +44,20 @@ import type { BrowseData, TripsData } from './types.js';
         return;
     }
 
-    // If already loaded, just open the modal
-    if (document.getElementById('c1t-fab')) {
-        const overlay = document.getElementById('c1t-overlay');
-        if (overlay) overlay.classList.add('open');
-        return;
+    // If already loaded, check whether the existing FAB matches the current
+    // mode. Cap One's SPA navigation leaves our DOM in place, so a FAB created
+    // on /feed (browse) would otherwise re-open with stale browse content on a
+    // trips page (or vice versa).
+    const existingFab = document.getElementById('c1t-fab');
+    if (existingFab) {
+        if (existingFab.dataset.c1tMode === mode) {
+            const overlay = document.getElementById('c1t-overlay');
+            if (overlay) overlay.classList.add('open');
+            return;
+        }
+        // Mode mismatch — tear down and re-run from scratch
+        existingFab.remove();
+        document.getElementById('c1t-overlay')?.remove();
     }
 
     console.log('[C1 Tracker Bookmarklet] Running on', currentSite, 'mode=', mode);
@@ -58,6 +67,11 @@ import type { BrowseData, TripsData } from './types.js';
     } else {
         runBrowseMode(currentSite);
     }
+
+    // Tag the freshly-created FAB with its mode so the next bookmarklet click
+    // after a navigation can detect mismatches.
+    const newFab = document.getElementById('c1t-fab');
+    if (newFab) newFab.dataset.c1tMode = mode;
 })();
 
 //=============================================================================
