@@ -5,15 +5,26 @@
 export const CONFIG = {
     offers: {
         hostname: 'capitaloneoffers',
-        pagePath: '/c1-offers/shopping-trips',
-        apiPattern: (url) => url.includes('shopping-trips') && url.includes('version=2') && url.includes('_data='),
-        apiEndpoint: null // Offers uses intercepted calls only
+        pages: { trips: '/c1-offers/shopping-trips', browse: '/feed' },
+        trips: {
+            apiPattern: (url) => url.includes('shopping-trips') && url.includes('version=2') && url.includes('_data='),
+            apiEndpoint: '/c1-offers/shopping-trips?limit=300&offset=0&version=2&_data=routes%2Fc1-offers.shopping-trips'
+        },
+        browse: {
+            apiPattern: (url) => url.includes('/feed/') && url.includes('viewInstanceId=')
+        }
     },
     shopping: {
         hostname: 'capitaloneshopping',
-        pagePath: '/account-settings/shopping-trips',
-        apiPattern: (url) => url.includes('/api/v1/trip_orders'),
-        apiEndpoint: '/api/v1/trip_orders'
+        pages: { trips: '/account-settings/shopping-trips', browse: '/' },
+        trips: {
+            apiPattern: (url) => url.includes('/api/v1/trip_orders'),
+            apiEndpoint: '/api/v1/trip_orders'
+        },
+        browse: {
+            apiPattern: (url) => url.endsWith('/api/v1/feed'),
+            apiEndpoint: '/api/v1/feed'
+        }
     }
 };
 
@@ -23,10 +34,23 @@ export function getCurrentSite() {
     return null;
 }
 
-export function isOnShoppingTripsPage() {
+export function detectMode() {
     const site = getCurrentSite();
-    if (!site) return false;
-    return window.location.pathname.startsWith(CONFIG[site].pagePath);
+    if (!site) return null;
+    const p = window.location.pathname;
+    const pages = CONFIG[site].pages;
+    if (p.startsWith(pages.trips)) return 'trips';
+    if (site === 'shopping' && (p === '/' || p === '')) return 'browse';
+    if (site === 'offers' && p.startsWith(pages.browse)) return 'browse';
+    return null;
+}
+
+export function isOnShoppingTripsPage() {
+    return detectMode() === 'trips';
+}
+
+export function isOnBrowsePage() {
+    return detectMode() === 'browse';
 }
 
 //=============================================================================
@@ -350,6 +374,145 @@ export const STYLES = `
         flex: 1 !important;
         min-height: 0 !important;
         overflow: hidden !important;
+    }
+
+    /* Browse mode */
+    #c1t-browse-search {
+        padding: 12px 20px 8px !important;
+        display: flex !important;
+        gap: 8px !important;
+        flex-shrink: 0 !important;
+    }
+    #c1t-browse-search input {
+        flex: 1 !important;
+        padding: 8px 12px !important;
+        border-radius: 6px !important;
+        border: 1px solid rgba(255,255,255,0.25) !important;
+        background: rgba(0,0,0,0.2) !important;
+        color: white !important;
+        font-size: 13px !important;
+        font-family: inherit !important;
+    }
+    #c1t-browse-search input::placeholder { color: rgba(255,255,255,0.55) !important; }
+    #c1t-browse-search button {
+        background: rgba(255,255,255,0.15) !important;
+        border: 1px solid rgba(255,255,255,0.2) !important;
+        color: white !important;
+        padding: 0 12px !important;
+        border-radius: 6px !important;
+        cursor: pointer !important;
+        font-size: 12px !important;
+    }
+    #c1t-browse-nav {
+        padding: 4px 20px 10px !important;
+        display: flex !important;
+        gap: 6px !important;
+        flex-wrap: wrap !important;
+        flex-shrink: 0 !important;
+    }
+    .c1t-jump-chip {
+        background: rgba(255,255,255,0.15) !important;
+        border: 1px solid rgba(255,255,255,0.2) !important;
+        color: white !important;
+        padding: 4px 10px !important;
+        border-radius: 12px !important;
+        cursor: pointer !important;
+        font-size: 11px !important;
+    }
+    .c1t-jump-chip:hover { background: rgba(255,255,255,0.25) !important; }
+    #c1t-browse-stats {
+        padding: 8px 20px !important;
+        font-size: 13px !important;
+        opacity: 0.85 !important;
+        flex-shrink: 0 !important;
+    }
+    #c1t-browse-body {
+        flex: 1 !important;
+        overflow-y: auto !important;
+        padding: 0 20px 20px !important;
+    }
+    .c1t-bucket {
+        margin-bottom: 10px !important;
+        background: rgba(0,0,0,0.15) !important;
+        border-radius: 8px !important;
+    }
+    .c1t-bucket > summary {
+        padding: 10px 14px !important;
+        cursor: pointer !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        list-style: none !important;
+        user-select: none !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+    }
+    .c1t-bucket > summary::-webkit-details-marker { display: none !important; }
+    .c1t-bucket > summary::before {
+        content: '▶' !important;
+        font-size: 10px !important;
+        transition: transform 0.15s !important;
+        opacity: 0.7 !important;
+    }
+    .c1t-bucket[open] > summary::before { transform: rotate(90deg) !important; }
+    .c1t-bucket-count {
+        opacity: 0.7 !important;
+        font-weight: 400 !important;
+        font-size: 12px !important;
+    }
+    .c1t-bucket table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        font-size: 13px !important;
+    }
+    .c1t-bucket th {
+        text-align: left !important;
+        padding: 8px !important;
+        border-bottom: 1px solid rgba(255,255,255,0.15) !important;
+        font-weight: 600 !important;
+        font-size: 11px !important;
+        opacity: 0.75 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.05em !important;
+    }
+    .c1t-bucket td {
+        padding: 8px !important;
+        border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+    }
+    .c1t-row-click { cursor: pointer !important; }
+    .c1t-row-click:hover { background: rgba(255,255,255,0.08) !important; }
+    .c1t-reward { font-weight: 600 !important; color: #69f0ae !important; }
+    .c1t-pill {
+        display: inline-block !important;
+        padding: 2px 7px !important;
+        border-radius: 10px !important;
+        font-size: 10px !important;
+        font-weight: 500 !important;
+        background: rgba(255,255,255,0.2) !important;
+    }
+    .c1t-pill.event { background: #4caf50 !important; }
+    .c1t-pill.deal { background: #ffb300 !important; color: #222 !important; }
+    .c1t-pill.new { background: #2196f3 !important; }
+    .c1t-pill.retarget { background: #9c27b0 !important; }
+    .c1t-exclusions {
+        font-size: 11px !important;
+        opacity: 0.7 !important;
+        max-width: 260px !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }
+    .c1t-event-end {
+        font-size: 11px !important;
+        opacity: 0.8 !important;
+        white-space: nowrap !important;
+    }
+    #c1t-browse-footer {
+        padding: 8px 20px !important;
+        font-size: 11px !important;
+        opacity: 0.7 !important;
+        border-top: 1px solid rgba(255,255,255,0.1) !important;
+        flex-shrink: 0 !important;
     }
 `;
 

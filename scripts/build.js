@@ -10,6 +10,15 @@ if (!fs.existsSync(distDir)) {
     fs.mkdirSync(distDir, { recursive: true });
 }
 
+// Pick .ts entry over .js if present (lets us convert one file at a time).
+function pickEntry(stem) {
+    const ts = path.join(srcDir, stem + '.ts');
+    const js = path.join(srcDir, stem + '.js');
+    if (fs.existsSync(ts)) return ts;
+    if (fs.existsSync(js)) return js;
+    throw new Error(`No entry found for ${stem} (.ts or .js)`);
+}
+
 const TAMPERMONKEY_HEADER = `// ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
@@ -32,7 +41,7 @@ async function build() {
     // Build Tampermonkey version
     console.log('1. Building Tampermonkey userscript...');
     const tampermonkeyResult = await esbuild.build({
-        entryPoints: [path.join(srcDir, 'tampermonkey.js')],
+        entryPoints: [pickEntry('tampermonkey')],
         bundle: true,
         format: 'iife',
         write: false,
@@ -54,7 +63,7 @@ async function build() {
     // Build full bookmarklet (loaded externally)
     console.log('2. Building full bookmarklet script...');
     const bookmarkletFullResult = await esbuild.build({
-        entryPoints: [path.join(srcDir, 'bookmarklet-full.js')],
+        entryPoints: [pickEntry('bookmarklet-full')],
         bundle: true,
         format: 'iife',
         write: false,
@@ -72,7 +81,7 @@ async function build() {
     // Build bookmarklet loader (tiny, inlined)
     console.log('3. Building bookmarklet loader...');
     const bookmarkletLoaderResult = await esbuild.build({
-        entryPoints: [path.join(srcDir, 'bookmarklet.js')],
+        entryPoints: [pickEntry('bookmarklet')],
         bundle: true,
         format: 'iife',
         write: false,
