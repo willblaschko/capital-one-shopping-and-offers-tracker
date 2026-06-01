@@ -22,15 +22,17 @@ function pickEntry(stem) {
 const TAMPERMONKEY_HEADER = `// ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      2.2
-// @description  Shows hidden orderAmount and creditAmount data for shopping trips via a floating action button
-// @author       You
+// @version      3.0.0
+// @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
+// @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*
 // @match        https://www.capitaloneoffers.com/*
 // @match        https://capitaloneshopping.com/*
 // @match        https://www.capitaloneshopping.com/*
 // @grant        none
 // @run-at       document-start
+// @updateURL    https://willblaschko.github.io/capital-one-shopping-and-offers-tracker/tampermonkey.user.js
+// @downloadURL  https://willblaschko.github.io/capital-one-shopping-and-offers-tracker/tampermonkey.user.js
 // ==/UserScript==
 
 `;
