@@ -4,10 +4,17 @@
   "description": "Track Capital One Shopping & Offers trips with hidden order/credit data",
   "scripts": {
     "build": "node scripts/build.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
     "prepare": "node scripts/setup-hooks.js"
   },
   "devDependencies": {
-    "esbuild": "^0.24.0"
+    "@types/node": "^25.9.1",
+    "esbuild": "^0.24.0",
+    "happy-dom": "^20.9.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
   },
   "author": "",
   "license": "MIT"
