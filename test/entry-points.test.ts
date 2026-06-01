@@ -185,6 +185,7 @@ interface MockBrowseExports {
     walkShoppingFeed: ReturnType<typeof vi.fn>;
     walkOffersFeed: ReturnType<typeof vi.fn>;
     getOffersBrowseContext: ReturnType<typeof vi.fn>;
+    fetchOffersBrowseContext: ReturnType<typeof vi.fn>;
     processBrowseData: ReturnType<typeof vi.fn>;
     renderBrowseToModal: unknown;
 }
@@ -263,6 +264,7 @@ function makeMocks(opts: {
         walkShoppingFeed: vi.fn(),
         walkOffersFeed: vi.fn(),
         getOffersBrowseContext: vi.fn(),
+        fetchOffersBrowseContext: vi.fn(),
         processBrowseData: vi.fn((offers: unknown[]) => {
             const stats: BrowseStats = { total: offers.length, byBucket: {} };
             const data: BrowseData = {
@@ -379,7 +381,7 @@ describe('bookmarklet-full entry — mode dispatch', () => {
     it('mode==="browse" on offers with no context shows error and does NOT walk', async () => {
         window.location.href = 'https://capitaloneoffers.com/feed';
         const m = makeMocks({ site: 'offers', mode: 'browse' });
-        m.browse.getOffersBrowseContext.mockReturnValue(null);
+        m.browse.fetchOffersBrowseContext.mockResolvedValue(null);
         vi.doMock('../src/core.js', () => m.core);
         vi.doMock('../src/browse.js', () => m.browse);
 
@@ -387,18 +389,18 @@ describe('bookmarklet-full entry — mode dispatch', () => {
         await new Promise((r) => setTimeout(r, 0));
         await new Promise((r) => setTimeout(r, 0));
 
-        expect(m.browse.getOffersBrowseContext).toHaveBeenCalled();
+        expect(m.browse.fetchOffersBrowseContext).toHaveBeenCalled();
         expect(m.browse.walkOffersFeed).not.toHaveBeenCalled();
 
         const loading = document.querySelector('#c1t-loading');
-        expect(loading?.textContent ?? '').toMatch(/reload|context|__NEXT_DATA__/i);
+        expect(loading?.textContent ?? '').toMatch(/context|userId|diagnostics/i);
     });
 
     it('mode==="browse" on offers WITH context calls walkOffersFeed(ctx, onPage)', async () => {
         window.location.href = 'https://capitaloneoffers.com/feed';
         const m = makeMocks({ site: 'offers', mode: 'browse' });
         const ctx = { userId: 'u-1', viewInstanceId: 'v-1' };
-        m.browse.getOffersBrowseContext.mockReturnValue(ctx);
+        m.browse.fetchOffersBrowseContext.mockResolvedValue(ctx);
         m.browse.walkOffersFeed.mockResolvedValue({
             items: [{ id: 'tile-1' }],
             hitCap: true,

@@ -373,26 +373,25 @@ describe('bucketize value buckets', () => {
     });
 });
 
-describe('bucketize special buckets and precedence', () => {
-    it('events bucket for bucketCategory=events', () => {
-        expect(bucketize(offerFixture({ bucketCategory: 'events', rewardType: 'percent', rewardValue: 5 }))).toBe('events');
+describe('bucketize attribute categories DO NOT drive bucket assignment (badges only)', () => {
+    // Attribute categories (events / price-drops / new-customer / recently-viewed)
+    // surface as inline pill badges via pillClass() but no longer get their own
+    // top-level bucket. An event with 5% appears alongside other 5% offers.
+    it('events bucketCategory routes to value bucket by reward', () => {
+        expect(bucketize(offerFixture({ bucketCategory: 'events', rewardType: 'percent', rewardValue: 5 }))).toBe('pct-1');
+        expect(bucketize(offerFixture({ bucketCategory: 'events', rewardType: 'multiplier', rewardValue: 25 }))).toBe('mult-20');
     });
 
-    it('price-drops bucket for bucketCategory=price-drops', () => {
-        expect(bucketize(offerFixture({ bucketCategory: 'price-drops' }))).toBe('price-drops');
+    it('price-drops bucketCategory routes to value bucket by reward', () => {
+        expect(bucketize(offerFixture({ bucketCategory: 'price-drops', rewardType: 'percent', rewardValue: 2 }))).toBe('pct-1');
     });
 
-    it('new-customer bucket for bucketCategory=new-customer', () => {
-        expect(bucketize(offerFixture({ bucketCategory: 'new-customer' }))).toBe('new-customer');
+    it('new-customer bucketCategory routes to value bucket by reward', () => {
+        expect(bucketize(offerFixture({ bucketCategory: 'new-customer', rewardType: 'percent', rewardValue: 9 }))).toBe('pct-1');
     });
 
-    it('recently-viewed bucket for bucketCategory=recently-viewed', () => {
-        expect(bucketize(offerFixture({ bucketCategory: 'recently-viewed' }))).toBe('recently-viewed');
-    });
-
-    it('special takes precedence over value: event with 5% goes to events not pct-1', () => {
-        const ev = offerFixture({ bucketCategory: 'events', rewardType: 'percent', rewardValue: 5 });
-        expect(bucketize(ev)).toBe('events');
+    it('recently-viewed bucketCategory routes to value bucket by reward', () => {
+        expect(bucketize(offerFixture({ bucketCategory: 'recently-viewed', rewardType: 'fixed-cash', rewardValue: 17.5 }))).toBe('cash-0');
     });
 });
 
@@ -597,13 +596,12 @@ describe('processBrowseData', () => {
         const a = offerFixture({ id: 'a', rewardType: 'multiplier', rewardValue: 30 }); // mult-30
         const b = offerFixture({ id: 'b', rewardType: 'multiplier', rewardValue: 22 }); // mult-20
         const c = offerFixture({ id: 'c', rewardType: 'percent', rewardValue: 5 });     // pct-1
-        const d = offerFixture({ id: 'd', bucketCategory: 'events', rewardType: 'percent', rewardValue: 5 }); // events
+        const d = offerFixture({ id: 'd', bucketCategory: 'events', rewardType: 'percent', rewardValue: 5 }); // pct-1 (events is badge only now)
         const data = processBrowseData([a, b, c, d]);
         expect(data.stats.total).toBe(4);
         expect(data.buckets['mult-30']?.length).toBe(1);
         expect(data.buckets['mult-20']?.length).toBe(1);
-        expect(data.buckets['pct-1']?.length).toBe(1);
-        expect(data.buckets['events']?.length).toBe(1);
+        expect(data.buckets['pct-1']?.length).toBe(2); // c and d both land here
         expect(data.stats.byBucket['mult-30']).toBe(1);
     });
 
@@ -616,33 +614,33 @@ describe('processBrowseData', () => {
         expect(bucket.map(o => o.rewardValue)).toEqual([15, 12, 10]);
     });
 
-    it('bucketOrder lists specials first then value buckets from highest tier down', () => {
+    it('bucketOrder lists value buckets by unit group, highest tier first within each group', () => {
         const offers = [
-            offerFixture({ id: '1', bucketCategory: 'events', rewardType: 'percent', rewardValue: 5 }),
-            offerFixture({ id: '2', bucketCategory: 'price-drops', rewardType: 'percent', rewardValue: 2 }),
-            offerFixture({ id: '3', rewardType: 'multiplier', rewardValue: 30 }),
-            offerFixture({ id: '4', rewardType: 'multiplier', rewardValue: 1 }),
-            offerFixture({ id: '5', rewardType: 'percent', rewardValue: 40 }),
-            offerFixture({ id: '6', rewardType: 'fixed-points', rewardValue: 10000 }),
-            offerFixture({ id: '7', rewardType: 'fixed-points', rewardValue: 500 })
+            offerFixture({ id: '1', bucketCategory: 'events', rewardType: 'percent', rewardValue: 5 }),         // pct-1
+            offerFixture({ id: '2', bucketCategory: 'price-drops', rewardType: 'percent', rewardValue: 2 }),    // pct-1
+            offerFixture({ id: '3', rewardType: 'multiplier', rewardValue: 30 }),                                // mult-30
+            offerFixture({ id: '4', rewardType: 'multiplier', rewardValue: 1 }),                                 // mult-1
+            offerFixture({ id: '5', rewardType: 'percent', rewardValue: 40 }),                                   // pct-40
+            offerFixture({ id: '6', rewardType: 'fixed-points', rewardValue: 10000 }),                           // pts-10k
+            offerFixture({ id: '7', rewardType: 'fixed-points', rewardValue: 500 })                              // pts-lt-1k
         ];
         const data = processBrowseData(offers);
-        // Specials should come first
-        const eventsIdx = data.bucketOrder.indexOf('events');
-        const priceDropsIdx = data.bucketOrder.indexOf('price-drops');
         const mult30Idx = data.bucketOrder.indexOf('mult-30');
         const mult1Idx = data.bucketOrder.indexOf('mult-1');
         const pct40Idx = data.bucketOrder.indexOf('pct-40');
-        expect(eventsIdx).toBeGreaterThanOrEqual(0);
-        expect(priceDropsIdx).toBeGreaterThanOrEqual(0);
-        expect(eventsIdx).toBeLessThan(mult30Idx);
-        expect(priceDropsIdx).toBeLessThan(mult30Idx);
-        // High tier multiplier before low tier
+        const pct1Idx = data.bucketOrder.indexOf('pct-1');
+        const pts10kIdx = data.bucketOrder.indexOf('pts-10k');
+        // Attribute categories no longer get their own buckets
+        expect(data.bucketOrder).not.toContain('events');
+        expect(data.bucketOrder).not.toContain('price-drops');
+        // Multiplier group first; high tier before low tier within group
         expect(mult30Idx).toBeLessThan(mult1Idx);
-        // pct-40 should come after mult buckets but before pts buckets? Actually the plan
-        // says "value buckets from highest tier down" — multiplier first then percent then
-        // cash then points
-        expect(mult30Idx).toBeLessThan(pct40Idx);
+        // Multiplier group comes before percent group
+        expect(mult1Idx).toBeLessThan(pct40Idx);
+        // Percent group ordering
+        expect(pct40Idx).toBeLessThan(pct1Idx);
+        // Points come after percent
+        expect(pct1Idx).toBeLessThan(pts10kIdx);
     });
 
     it('only includes buckets that have at least one offer in bucketOrder', () => {
@@ -972,23 +970,24 @@ describe('renderBrowseToModal', () => {
         const data = makeBrowseData();
         renderBrowseToModal(overlay, data);
         const buckets = overlay.querySelectorAll('details[data-bucket-id]');
-        // events + mult-30 + mult-1
+        // The 'events' bucketCategory offer with 5% now lands in pct-1, so
+        // present buckets are pct-1 + mult-30 + mult-1 (3 distinct value buckets)
         expect(buckets.length).toBe(3);
         const ids = Array.from(buckets).map(d => (d as HTMLElement).dataset.bucketId);
-        expect(ids).toContain('events');
+        expect(ids).toContain('pct-1');
         expect(ids).toContain('mult-30');
         expect(ids).toContain('mult-1');
+        // Attribute buckets are no longer top-level
+        expect(ids).not.toContain('events');
     });
 
-    it('high-value and special buckets render with open attribute, low-value collapsed', () => {
+    it('high-value buckets render open, low-value buckets collapsed', () => {
         const overlay = makeOverlay();
         const data = makeBrowseData();
         renderBrowseToModal(overlay, data);
 
-        const events = overlay.querySelector('details[data-bucket-id="events"]') as HTMLDetailsElement;
         const mult30 = overlay.querySelector('details[data-bucket-id="mult-30"]') as HTMLDetailsElement;
         const mult1 = overlay.querySelector('details[data-bucket-id="mult-1"]') as HTMLDetailsElement;
-        expect(events.open).toBe(true);
         expect(mult30.open).toBe(true);
         expect(mult1.open).toBe(false);
     });

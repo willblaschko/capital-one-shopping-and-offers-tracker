@@ -484,14 +484,42 @@
     .c1t-pill.deal { background: #ffb300 !important; color: #222 !important; }
     .c1t-pill.new { background: #2196f3 !important; }
     .c1t-pill.retarget { background: #9c27b0 !important; }
-    .c1t-exclusions {
+    .c1t-excl-cell {
         font-size: 11px !important;
         opacity: 0.7 !important;
-        max-width: 260px !important;
+        display: flex !important;
+        align-items: baseline !important;
+        gap: 4px !important;
+        max-width: 280px !important;
+    }
+    .c1t-excl-cell .c1t-excl-text {
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
         white-space: nowrap !important;
     }
+    .c1t-excl-cell.c1t-excl-expanded {
+        max-width: 420px !important;
+        align-items: flex-start !important;
+    }
+    .c1t-excl-cell.c1t-excl-expanded .c1t-excl-text {
+        white-space: normal !important;
+        text-overflow: clip !important;
+        overflow: visible !important;
+    }
+    .c1t-excl-toggle {
+        flex: 0 0 auto !important;
+        background: none !important;
+        border: none !important;
+        padding: 0 !important;
+        color: inherit !important;
+        opacity: 0.9 !important;
+        cursor: pointer !important;
+        font: inherit !important;
+        text-decoration: underline !important;
+    }
+    .c1t-excl-toggle:hover { opacity: 1 !important; }
     .c1t-event-end {
         font-size: 11px !important;
         opacity: 0.8 !important;
@@ -625,7 +653,14 @@
     });
   };
   function createUI(options) {
-    const { onOpen, processedData: initialData, render, getBadgeCount } = options;
+    const {
+      onOpen,
+      processedData: initialData,
+      render,
+      getBadgeCount,
+      title = "Shopping Trips Tracker",
+      loadingText = "Waiting for data... Navigate to Shopping Trips page and data will load automatically."
+    } = options;
     let stylesInjected = false;
     let currentData = initialData;
     function ensureStyles() {
@@ -646,7 +681,7 @@
       const fab = document.createElement("button");
       fab.id = "c1t-fab";
       fab.innerHTML = "\u{1F4CB}";
-      fab.title = "Shopping Trips Tracker";
+      fab.title = title;
       fab.addEventListener("click", async () => {
         const overlay = ensureOverlay();
         overlay.classList.add("open");
@@ -680,11 +715,11 @@
         overlay.innerHTML = `
                 <div id="c1t-modal">
                     <div id="c1t-header">
-                        <h2>\u{1F4CB} Shopping Trips Tracker</h2>
+                        <h2>\u{1F4CB} ${escapeHtml(title)}</h2>
                         <button id="c1t-close">\u2715</button>
                     </div>
                     <div id="c1t-content">
-                        <div id="c1t-loading">Waiting for data... Navigate to Shopping Trips page and data will load automatically.</div>
+                        <div id="c1t-loading">${escapeHtml(loadingText)}</div>
                     </div>
                 </div>
             `;
@@ -871,6 +906,7 @@
     if (!tileId || !merchantTLD) return [];
     const buttonText = raw.buttonText ?? "";
     const parsed = parseRewardDisplay(buttonText);
+    const description = raw.subText && raw.headingText ? `${raw.headingText} \u2014 ${raw.subText}` : raw.subText ?? raw.headingText ?? raw.text ?? "";
     return [
       {
         id: tileId,
@@ -884,22 +920,14 @@
         activation: { method: "post-offers", url: offersActivationUrl(ctx, tileId) },
         bucketCategory: "value",
         pill: raw.badge?.text ?? null,
-        exclusions: "",
+        exclusions: description,
         eventEnd: null,
         priceHistory: null,
         raw
       }
     ];
   }
-  var SPECIAL_BUCKET_FROM_CATEGORY = {
-    events: "events",
-    "price-drops": "price-drops",
-    "new-customer": "new-customer",
-    "recently-viewed": "recently-viewed"
-  };
   function bucketize(offer) {
-    const special = SPECIAL_BUCKET_FROM_CATEGORY[offer.bucketCategory];
-    if (special) return special;
     const v = offer.rewardValue;
     switch (offer.rewardType) {
       case "multiplier":
@@ -928,10 +956,6 @@
     }
   }
   var BUCKET_META = [
-    { id: "events", label: "Events", group: "special", initiallyOpen: true },
-    { id: "price-drops", label: "Price Drops", group: "special", initiallyOpen: true },
-    { id: "new-customer", label: "New Customer", group: "special", initiallyOpen: true },
-    { id: "recently-viewed", label: "Recently Viewed", group: "special", initiallyOpen: true },
     { id: "mult-30", label: "Multipliers \xB7 30X+", group: "multiplier", initiallyOpen: true },
     { id: "mult-20", label: "Multipliers \xB7 20\u201329X", group: "multiplier", initiallyOpen: true },
     { id: "mult-10", label: "Multipliers \xB7 10\u201319X", group: "multiplier", initiallyOpen: false },
@@ -1001,16 +1025,33 @@
     return { items: out, hitCap: pages >= maxPages, pagesWalked: pages };
   }
   function shoppingFeedBody(cursor) {
+    const pagination = { limit: 25 };
+    if (cursor) pagination.nextPageToken = cursor;
     return JSON.stringify({
-      contentProps: {
-        pagination: {
-          nextPageToken: cursor ?? "",
-          limit: 25
-        }
-      },
+      contentProps: { pagination },
       context: {
-        url: typeof window !== "undefined" ? window.location.href : "",
-        referrer: typeof document !== "undefined" ? document.referrer : ""
+        device: {
+          model: typeof navigator !== "undefined" && /Mac/.test(navigator.platform) ? "Macintosh" : "Unknown",
+          manufacturer: "Unknown",
+          memory: "8",
+          concurrency: String(
+            typeof navigator !== "undefined" && navigator.hardwareConcurrency || 4
+          )
+        },
+        browser: { name: "Chrome", version: "0", major: "0" },
+        os: { name: "unknown", version: "0" },
+        screen: { width: 1920, height: 1080, density: 2 },
+        locale: typeof navigator !== "undefined" && navigator.language ? navigator.language : "en-US",
+        country: "US",
+        location: { state: "", zipcode: "", latitude: null, longitude: null, isInCensusData: false },
+        page: {
+          path: typeof window !== "undefined" ? window.location.pathname : "/",
+          url: typeof window !== "undefined" ? window.location.href : "",
+          referrer: typeof document !== "undefined" ? document.referrer : "",
+          search: typeof window !== "undefined" ? window.location.search : "",
+          title: typeof document !== "undefined" ? document.title : ""
+        },
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : ""
       }
     });
   }
@@ -1033,8 +1074,23 @@
           headers: { "Content-Type": "application/json" },
           body: shoppingFeedBody(cursor)
         });
-        if (!r.ok) return null;
-        return await r.json();
+        if (!r.ok) {
+          console.warn("[C1 Tracker] shopping feed POST failed", {
+            status: r.status,
+            statusText: r.statusText,
+            cursor
+          });
+          return null;
+        }
+        const page = await r.json();
+        if (!cursor) {
+          console.log("[C1 Tracker] shopping feed first page", {
+            count: page.count,
+            itemCount: page.items?.length ?? 0,
+            nextPageToken: page.pagination?.nextPageToken
+          });
+        }
+        return page;
       },
       getNextCursor: (page) => page.pagination?.nextPageToken ?? null,
       getItems: (page) => page.items ?? [],
@@ -1044,10 +1100,19 @@
     };
     const walked = await walkFeed(cfg);
     const offers = [];
+    let dropped = 0;
     for (const it of walked.items) {
       const o = normalizeShoppingOffer(it);
       if (o) offers.push(o);
+      else dropped++;
     }
+    console.log("[C1 Tracker] shopping walk done", {
+      rawItems: walked.items.length,
+      normalized: offers.length,
+      droppedDuringNormalize: dropped,
+      pagesWalked: walked.pagesWalked,
+      hitCap: walked.hitCap
+    });
     return { items: offers, hitCap: walked.hitCap, pagesWalked: walked.pagesWalked };
   }
   function offersFeedUrl(ctx, cursor) {
@@ -1056,11 +1121,10 @@
     return cursor ? `${base}${params}&cursor=${cursor}` : `${base}${params}`;
   }
   function offersDedupeKey(item) {
-    if (item.id) return item.id;
     const tld = item.merchantTLD ?? "";
     const bt = item.buttonText ?? "";
-    if (!tld && !bt) return null;
-    return `${tld}|${bt}`;
+    if (tld && bt) return `${tld}|${bt}`;
+    return item.id ?? null;
   }
   function flattenOffersTiles(tiles) {
     const out = [];
@@ -1117,17 +1181,22 @@
     let userId = null;
     let viewInstanceId = null;
     try {
-      const el = document.getElementById("__NEXT_DATA__");
-      if (el?.textContent) {
-        const parsed = JSON.parse(el.textContent);
-        userId = findKeyRecursive(parsed, ["userId", "accountReferenceId"]);
-        viewInstanceId = findKeyRecursive(parsed, ["viewInstanceId"]);
-      }
+      const params = new URLSearchParams(window.location.search);
+      viewInstanceId = params.get("viewInstanceId");
     } catch {
     }
-    if (!userId) {
-      const m = window.location.pathname.match(/^\/feed\/([^/?#]+)/);
-      if (m && m[1]) userId = decodeURIComponent(m[1]);
+    const pathMatch = window.location.pathname.match(/^\/feed\/([^/?#]+)/);
+    if (pathMatch && pathMatch[1]) userId = decodeURIComponent(pathMatch[1]);
+    if (!userId || !viewInstanceId) {
+      try {
+        const el = document.getElementById("__NEXT_DATA__");
+        if (el?.textContent) {
+          const parsed = JSON.parse(el.textContent);
+          if (!userId) userId = findKeyRecursive(parsed, ["userId", "accountReferenceId"]);
+          if (!viewInstanceId) viewInstanceId = findKeyRecursive(parsed, ["viewInstanceId"]);
+        }
+      } catch {
+      }
     }
     if (!viewInstanceId && userId) {
       try {
@@ -1138,6 +1207,49 @@
       }
     }
     if (userId && viewInstanceId) return { userId, viewInstanceId };
+    console.warn("[C1 Tracker] getOffersBrowseContext (sync) failed", {
+      pathname: window.location.pathname,
+      search: window.location.search,
+      userId,
+      viewInstanceId,
+      hasNextData: !!document.getElementById("__NEXT_DATA__")
+    });
+    return null;
+  }
+  async function fetchOffersBrowseContext() {
+    const sync = getOffersBrowseContext();
+    if (sync) return sync;
+    let userId = null;
+    let viewInstanceId = null;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      viewInstanceId = params.get("viewInstanceId");
+    } catch {
+    }
+    try {
+      const r = await fetch(
+        "/c1-offers/shopping-trips?limit=1&offset=0&version=2&_data=routes%2Fc1-offers.shopping-trips",
+        { method: "POST", credentials: "include" }
+      );
+      if (r.ok) {
+        const data = await r.json();
+        if (Array.isArray(data) && data.length > 0 && typeof data[0]?.accountReferenceId === "string") {
+          userId = data[0].accountReferenceId;
+        }
+      }
+    } catch (e) {
+      console.warn("[C1 Tracker] trips-API fallback for userId failed:", e);
+    }
+    if (!viewInstanceId && userId) {
+      try {
+        if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+          viewInstanceId = crypto.randomUUID();
+        }
+      } catch {
+      }
+    }
+    if (userId && viewInstanceId) return { userId, viewInstanceId };
+    console.warn("[C1 Tracker] fetchOffersBrowseContext failed", { userId, viewInstanceId });
     return null;
   }
   function pillClass(itemType, bucketCategory) {
@@ -1165,8 +1277,13 @@
       const search = escapeHtml(rowSearchString(o));
       const pillHtml = o.pill ? `<span class="c1t-pill ${pillClass(o.itemType, o.bucketCategory)}">${escapeHtml(o.pill)}</span>` : "";
       const endHtml = o.eventEnd ? `<span class="c1t-event-end">ends ${escapeHtml(eventEndDisplay(o.eventEnd))}</span>` : "";
-      const exclTitle = o.exclusions ? ` title="${escapeHtml(o.exclusions)}"` : "";
-      const exclShort = o.exclusions ? escapeHtml(o.exclusions) : "";
+      const exclText = o.exclusions ?? "";
+      const exclTitle = exclText ? ` title="${escapeHtml(exclText)}"` : "";
+      const exclShort = exclText ? escapeHtml(exclText) : "";
+      const exclLong = exclText.length > 60;
+      const exclHtml = !exclShort ? "" : exclLong ? `<div class="c1t-excl-cell"${exclTitle}>
+                       <span class="c1t-excl-text">${exclShort}</span><button type="button" class="c1t-excl-toggle">(more)</button>
+                   </div>` : `<div class="c1t-excl-cell"${exclTitle}><span class="c1t-excl-text">${exclShort}</span></div>`;
       return `<tr class="c1t-row-click"
             data-merchant="${escapeHtml(o.merchant)}"
             data-bucket-id="${escapeHtml(meta.id)}"
@@ -1177,7 +1294,7 @@
             <td><span class="c1t-reward">${escapeHtml(o.rewardDisplay)}</span></td>
             <td>${pillHtml}</td>
             <td>${endHtml}</td>
-            <td><span class="c1t-exclusions"${exclTitle}>${exclShort}</span></td>
+            <td>${exclHtml}</td>
         </tr>`;
     }).join("");
     const openAttr = meta.initiallyOpen ? " open" : "";
@@ -1193,8 +1310,6 @@
   }
   function groupChipLabel(group) {
     switch (group) {
-      case "special":
-        return "Specials";
       case "multiplier":
         return "Multipliers";
       case "percent":
@@ -1206,23 +1321,11 @@
     }
   }
   function buildQuickJumpChips(data) {
-    const present = /* @__PURE__ */ new Set();
-    for (const id of data.bucketOrder) {
-      const meta = BUCKET_META_BY_ID[id];
-      if (meta) present.add(meta.group);
-    }
     const chips = [];
-    for (const id of data.bucketOrder) {
-      const meta = BUCKET_META_BY_ID[id];
-      if (!meta) continue;
-      if (meta.group === "special") {
-        chips.push(`<button class="c1t-jump-chip" data-jump-to="${meta.id}">${escapeHtml(meta.label)}</button>`);
-      }
-    }
     const seenGroup = /* @__PURE__ */ new Set();
     for (const id of data.bucketOrder) {
       const meta = BUCKET_META_BY_ID[id];
-      if (!meta || meta.group === "special") continue;
+      if (!meta) continue;
       if (seenGroup.has(meta.group)) continue;
       seenGroup.add(meta.group);
       chips.push(`<button class="c1t-jump-chip" data-jump-to="${meta.id}">${escapeHtml(groupChipLabel(meta.group))}</button>`);
@@ -1257,6 +1360,17 @@
     root.addEventListener("click", (ev) => {
       const target = ev.target;
       if (!target) return;
+      const toggle = target.closest(".c1t-excl-toggle");
+      if (toggle) {
+        ev.stopPropagation();
+        ev.preventDefault();
+        const cell = toggle.closest(".c1t-excl-cell");
+        if (cell) {
+          const expanded = cell.classList.toggle("c1t-excl-expanded");
+          toggle.textContent = expanded ? "(less)" : "(more)";
+        }
+        return;
+      }
       const row = target.closest("tr[data-method]");
       if (!row) return;
       if (row.dataset.method === "href") {
@@ -1413,7 +1527,9 @@
         if (!browseProcessed && !browseWalking) void runBrowseWalk();
       },
       render: renderBrowseToModal,
-      getBadgeCount: (d) => d?.stats?.total ?? 0
+      getBadgeCount: (d) => d?.stats?.total ?? 0,
+      title: currentSite === "offers" ? "Browse Cap One Offers" : "Browse Cap One Shopping",
+      loadingText: "Loading offers feed..."
     });
     async function runBrowseWalk() {
       if (browseWalking) return;
@@ -1442,10 +1558,10 @@
           browseProcessed = data;
           browseUI.updateData(data);
         } else {
-          const ctx = getOffersBrowseContext();
+          const ctx = await fetchOffersBrowseContext();
           if (!ctx) {
             setLoading(
-              "Could not capture offers feed context. Please reload https://capitaloneoffers.com/feed so __NEXT_DATA__ is available."
+              "Could not capture offers feed context (userId + viewInstanceId). Open DevTools console for diagnostics."
             );
             return;
           }

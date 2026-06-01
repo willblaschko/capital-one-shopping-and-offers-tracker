@@ -16,7 +16,7 @@ import {
     renderTripsToModal
 } from './core.js';
 import {
-    getOffersBrowseContext,
+    fetchOffersBrowseContext,
     processBrowseData,
     renderBrowseToModal,
     walkOffersFeed,
@@ -93,7 +93,9 @@ import type { BrowseData, Mode, TripsData } from './types.js';
             if (!browseProcessed && !browseWalking) void runBrowseWalk();
         },
         render: renderBrowseToModal,
-        getBadgeCount: (d) => d?.stats?.total ?? 0
+        getBadgeCount: (d) => d?.stats?.total ?? 0,
+        title: currentSite === 'offers' ? 'Browse Cap One Offers' : 'Browse Cap One Shopping',
+        loadingText: 'Loading offers feed...'
     });
 
     async function runBrowseWalk(): Promise<void> {
@@ -126,10 +128,11 @@ import type { BrowseData, Mode, TripsData } from './types.js';
                 browseProcessed = data;
                 browseUI.updateData(data);
             } else {
-                const ctx = getOffersBrowseContext();
+                const ctx = await fetchOffersBrowseContext();
                 if (!ctx) {
                     setLoading(
-                        'Could not capture offers feed context. Please reload https://capitaloneoffers.com/feed so __NEXT_DATA__ is available.'
+                        'Could not capture offers feed context (userId + viewInstanceId). ' +
+                        'Open DevTools console for diagnostics.'
                     );
                     return;
                 }

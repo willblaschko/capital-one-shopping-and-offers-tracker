@@ -14,7 +14,7 @@ import {
     renderTripsToModal
 } from './core.js';
 import {
-    getOffersBrowseContext,
+    fetchOffersBrowseContext,
     processBrowseData,
     renderBrowseToModal,
     walkOffersFeed,
@@ -140,7 +140,9 @@ function runBrowseMode(currentSite: 'shopping' | 'offers'): void {
     const ui = createUI<BrowseData>({
         processedData: null,
         render: renderBrowseToModal,
-        getBadgeCount: (d) => d?.stats?.total ?? 0
+        getBadgeCount: (d) => d?.stats?.total ?? 0,
+        title: currentSite === 'offers' ? 'Browse Cap One Offers' : 'Browse Cap One Shopping',
+        loadingText: 'Loading offers feed...'
     });
 
     ui.ensureFab();
@@ -191,11 +193,13 @@ async function runBrowseWalk(
         return data;
     }
 
-    // Offers — need context first
-    const ctx = getOffersBrowseContext();
+    // Offers — need context first (userId + viewInstanceId)
+    const ctx = await fetchOffersBrowseContext();
     if (!ctx) {
         setLoading(
-            'Could not capture offers feed context. Please reload https://capitaloneoffers.com/feed and re-run the bookmarklet so __NEXT_DATA__ is available.'
+            'Could not capture offers feed context (userId + viewInstanceId). ' +
+            'Open DevTools console for diagnostics. The URL should look like ' +
+            '/feed/<userId>?viewInstanceId=<uuid>. Try clicking into the feed grid once, then re-run.'
         );
         return null;
     }

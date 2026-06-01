@@ -219,6 +219,15 @@ export function normalizeOffersFeedTile(raw: RawOffersFeedTile, ctx: OffersBrows
     const buttonText = raw.buttonText ?? '';
     const parsed = parseRewardDisplay(buttonText);
 
+    // The offers feed doesn't carry per-tile legal exclusions (those come back
+    // from the activation POST's affiliate.termsAndConditions). Best-effort
+    // description: Showcase tiles have rich subText/headingText; Standard/Hero
+    // tiles fall back to the short channel descriptor ("Online", "In-Store").
+    const description =
+        (raw.subText && raw.headingText)
+            ? `${raw.headingText} — ${raw.subText}`
+            : raw.subText ?? raw.headingText ?? raw.text ?? '';
+
     return [
         {
             id: tileId,
@@ -232,7 +241,7 @@ export function normalizeOffersFeedTile(raw: RawOffersFeedTile, ctx: OffersBrows
             activation: { method: 'post-offers', url: offersActivationUrl(ctx, tileId) },
             bucketCategory: 'value',
             pill: raw.badge?.text ?? null,
-            exclusions: '',
+            exclusions: description,
             eventEnd: null,
             priceHistory: null,
             raw
@@ -242,24 +251,19 @@ export function normalizeOffersFeedTile(raw: RawOffersFeedTile, ctx: OffersBrows
 
 //=============================================================================
 // Bucketing
+//
+// Buckets are by reward UNIT + value tier (multiplier / percent / fixed-cash /
+// fixed-points). The previous "specials" categories (events / price-drops /
+// new-customer / recently-viewed) live on each Offer as `bucketCategory` and
+// surface as inline badges via `pillClass()` — they no longer drive bucket
+// assignment so a 5% event still appears in the percent tiers next to other 5%
+// offers.
 //=============================================================================
 
-const SPECIAL_BUCKET_FROM_CATEGORY: Partial<Record<Offer['bucketCategory'], SpecialBucketId>> = {
-    events: 'events',
-    'price-drops': 'price-drops',
-    'new-customer': 'new-customer',
-    'recently-viewed': 'recently-viewed'
-};
-
 /**
- * Assign a bucket id to a canonical Offer.
- * Special buckets (events / price-drops / new-customer / recently-viewed)
- * always take precedence over value buckets even when the reward is small.
+ * Assign a bucket id to a canonical Offer based on reward type + numeric value.
  */
 export function bucketize(offer: Offer): BucketId {
-    const special = SPECIAL_BUCKET_FROM_CATEGORY[offer.bucketCategory];
-    if (special) return special;
-
     const v = offer.rewardValue;
     switch (offer.rewardType) {
         case 'multiplier':
@@ -296,16 +300,12 @@ export function bucketize(offer: Offer): BucketId {
 interface BucketMeta {
     id: BucketId;
     label: string;
-    group: 'special' | 'multiplier' | 'percent' | 'fixed-cash' | 'fixed-points';
+    group: 'multiplier' | 'percent' | 'fixed-cash' | 'fixed-points';
     initiallyOpen: boolean;
 }
 
-// Order matters: specials first, then value buckets from highest tier down.
+// Order matters: value buckets from highest tier down within each unit group.
 const BUCKET_META: BucketMeta[] = [
-    { id: 'events',          label: 'Events',                       group: 'special',       initiallyOpen: true  },
-    { id: 'price-drops',     label: 'Price Drops',                  group: 'special',       initiallyOpen: true  },
-    { id: 'new-customer',    label: 'New Customer',                 group: 'special',       initiallyOpen: true  },
-    { id: 'recently-viewed', label: 'Recently Viewed',              group: 'special',       initiallyOpen: true  },
     { id: 'mult-30',         label: 'Multipliers · 30X+',           group: 'multiplier',    initiallyOpen: true  },
     { id: 'mult-20',         label: 'Multipliers · 20–29X',         group: 'multiplier',    initiallyOpen: true  },
     { id: 'mult-10',         label: 'Multipliers · 10–19X',         group: 'multiplier',    initiallyOpen: false },
@@ -323,8 +323,8 @@ const BUCKET_META: BucketMeta[] = [
     { id: 'pts-lt-1k',       label: 'Fixed Points · under 1,000',   group: 'fixed-points',  initiallyOpen: false }
 ];
 
-const BUCKET_META_BY_ID: Record<BucketId, BucketMeta> = (() => {
-    const out = {} as Record<BucketId, BucketMeta>;
+const BUCKET_META_BY_ID: Partial<Record<BucketId, BucketMeta>> = (() => {
+    const out: Partial<Record<BucketId, BucketMeta>> = {};
     for (const m of BUCKET_META) out[m.id] = m;
     return out;
 })();
@@ -397,16 +397,35 @@ async function walkFeed<TPage, TItem>(cfg: WalkFeedConfig<TPage, TItem>): Promis
 //=============================================================================
 
 function shoppingFeedBody(cursor: string | null): string {
+    const pagination: { limit: number; nextPageToken?: string } = { limit: 25 };
+    if (cursor) pagination.nextPageToken = cursor;
     return JSON.stringify({
-        contentProps: {
-            pagination: {
-                nextPageToken: cursor ?? '',
-                limit: 25
-            }
-        },
+        contentProps: { pagination },
         context: {
-            url: typeof window !== 'undefined' ? window.location.href : '',
-            referrer: typeof document !== 'undefined' ? document.referrer : ''
+            device: {
+                model:
+                    typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? 'Macintosh' : 'Unknown',
+                manufacturer: 'Unknown',
+                memory: '8',
+                concurrency: String(
+                    (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 4
+                )
+            },
+            browser: { name: 'Chrome', version: '0', major: '0' },
+            os: { name: 'unknown', version: '0' },
+            screen: { width: 1920, height: 1080, density: 2 },
+            locale:
+                typeof navigator !== 'undefined' && navigator.language ? navigator.language : 'en-US',
+            country: 'US',
+            location: { state: '', zipcode: '', latitude: null, longitude: null, isInCensusData: false },
+            page: {
+                path: typeof window !== 'undefined' ? window.location.pathname : '/',
+                url: typeof window !== 'undefined' ? window.location.href : '',
+                referrer: typeof document !== 'undefined' ? document.referrer : '',
+                search: typeof window !== 'undefined' ? window.location.search : '',
+                title: typeof document !== 'undefined' ? document.title : ''
+            },
+            userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : ''
         }
     });
 }
@@ -433,8 +452,23 @@ export async function walkShoppingFeed(
                 headers: { 'Content-Type': 'application/json' },
                 body: shoppingFeedBody(cursor)
             });
-            if (!r.ok) return null;
-            return await r.json() as RawShoppingFeedResponse;
+            if (!r.ok) {
+                console.warn('[C1 Tracker] shopping feed POST failed', {
+                    status: r.status,
+                    statusText: r.statusText,
+                    cursor
+                });
+                return null;
+            }
+            const page = (await r.json()) as RawShoppingFeedResponse;
+            if (!cursor) {
+                console.log('[C1 Tracker] shopping feed first page', {
+                    count: page.count,
+                    itemCount: page.items?.length ?? 0,
+                    nextPageToken: page.pagination?.nextPageToken
+                });
+            }
+            return page;
         },
         getNextCursor: (page) => page.pagination?.nextPageToken ?? null,
         getItems: (page) => page.items ?? [],
@@ -445,10 +479,19 @@ export async function walkShoppingFeed(
 
     const walked = await walkFeed(cfg);
     const offers: Offer[] = [];
+    let dropped = 0;
     for (const it of walked.items) {
         const o = normalizeShoppingOffer(it);
         if (o) offers.push(o);
+        else dropped++;
     }
+    console.log('[C1 Tracker] shopping walk done', {
+        rawItems: walked.items.length,
+        normalized: offers.length,
+        droppedDuringNormalize: dropped,
+        pagesWalked: walked.pagesWalked,
+        hitCap: walked.hitCap
+    });
     return { items: offers, hitCap: walked.hitCap, pagesWalked: walked.pagesWalked };
 }
 
@@ -463,11 +506,15 @@ function offersFeedUrl(ctx: OffersBrowseContext, cursor: string | null): string 
 }
 
 function offersDedupeKey(item: RawOffersFeedTile): string | null {
-    if (item.id) return item.id;
+    // Same merchant + same reward = same offer to the user, even if Cap One
+    // surfaces it as multiple tiles (Standard + Hero + Carousel child). Use
+    // composite (merchantTLD, buttonText) so HSN 5X and HSN 90X remain
+    // distinct (different buttonText) but three identical Verizon tiles
+    // collapse to one.
     const tld = item.merchantTLD ?? '';
     const bt = item.buttonText ?? '';
-    if (!tld && !bt) return null;
-    return `${tld}|${bt}`;
+    if (tld && bt) return `${tld}|${bt}`;
+    return item.id ?? null;
 }
 
 /** Flatten Carousel children into a flat raw-tile array for dedupe + normalization. */
@@ -535,32 +582,45 @@ function findKeyRecursive(obj: unknown, keys: string[], depth = 0): string | nul
 
 /**
  * Discover userId + viewInstanceId from the live page.
- * Sources (in order): __NEXT_DATA__ script tag, URL path /feed/{userId}.
+ * Sources (in order):
+ *   1) URL query string  — viewInstanceId on the feed page is exposed as ?viewInstanceId=...
+ *   2) URL path          — /feed/{userId}
+ *   3) __NEXT_DATA__     — Next.js inlined page props (fallback if URL is bare)
+ *   4) Generated UUID    — last-resort fallback for viewInstanceId only
  * Returns null when both fields can't be obtained.
  */
 export function getOffersBrowseContext(): OffersBrowseContext | null {
     let userId: string | null = null;
     let viewInstanceId: string | null = null;
 
-    // 1) Parse __NEXT_DATA__ script tag (Next.js inlines page props)
+    // 1) URL query params (most reliable on the live /feed page)
     try {
-        const el = document.getElementById('__NEXT_DATA__');
-        if (el?.textContent) {
-            const parsed = JSON.parse(el.textContent) as unknown;
-            userId = findKeyRecursive(parsed, ['userId', 'accountReferenceId']);
-            viewInstanceId = findKeyRecursive(parsed, ['viewInstanceId']);
-        }
+        const params = new URLSearchParams(window.location.search);
+        viewInstanceId = params.get('viewInstanceId');
     } catch {
-        // malformed JSON — fall through
+        // ignore
     }
 
-    // 2) Fall back to URL path: /feed/{userId}
-    if (!userId) {
-        const m = window.location.pathname.match(/^\/feed\/([^/?#]+)/);
-        if (m && m[1]) userId = decodeURIComponent(m[1]);
+    // 2) URL path: /feed/{userId}
+    const pathMatch = window.location.pathname.match(/^\/feed\/([^/?#]+)/);
+    if (pathMatch && pathMatch[1]) userId = decodeURIComponent(pathMatch[1]);
+
+    // 3) __NEXT_DATA__ fallback for either field
+    if (!userId || !viewInstanceId) {
+        try {
+            const el = document.getElementById('__NEXT_DATA__');
+            if (el?.textContent) {
+                const parsed = JSON.parse(el.textContent) as unknown;
+                if (!userId) userId = findKeyRecursive(parsed, ['userId', 'accountReferenceId']);
+                if (!viewInstanceId) viewInstanceId = findKeyRecursive(parsed, ['viewInstanceId']);
+            }
+        } catch {
+            // malformed JSON — fall through
+        }
     }
 
-    // 3) For viewInstanceId, generate a UUID if Cap One accepts arbitrary IDs
+    // 4) Generate UUID as last resort (Cap One appears to accept arbitrary UUIDs;
+    //    if attribution breaks in the wild, tighten this branch.)
     if (!viewInstanceId && userId) {
         try {
             if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -572,6 +632,65 @@ export function getOffersBrowseContext(): OffersBrowseContext | null {
     }
 
     if (userId && viewInstanceId) return { userId, viewInstanceId };
+    console.warn('[C1 Tracker] getOffersBrowseContext (sync) failed', {
+        pathname: window.location.pathname,
+        search: window.location.search,
+        userId,
+        viewInstanceId,
+        hasNextData: !!document.getElementById('__NEXT_DATA__')
+    });
+    return null;
+}
+
+/**
+ * Async context discovery — tries sync sources first, then falls back to
+ * calling the offers trips endpoint and extracting `accountReferenceId`
+ * from the first entry. Works on the default `/feed` URL where the userId
+ * isn't yet in the path.
+ */
+export async function fetchOffersBrowseContext(): Promise<OffersBrowseContext | null> {
+    const sync = getOffersBrowseContext();
+    if (sync) return sync;
+
+    let userId: string | null = null;
+    let viewInstanceId: string | null = null;
+
+    // Reuse what the sync pass found (viewInstanceId from URL, even without userId)
+    try {
+        const params = new URLSearchParams(window.location.search);
+        viewInstanceId = params.get('viewInstanceId');
+    } catch {
+        // ignore
+    }
+
+    // Pull userId from the offers trips API — every entry carries accountReferenceId.
+    try {
+        const r = await fetch(
+            '/c1-offers/shopping-trips?limit=1&offset=0&version=2&_data=routes%2Fc1-offers.shopping-trips',
+            { method: 'POST', credentials: 'include' }
+        );
+        if (r.ok) {
+            const data = (await r.json()) as Array<{ accountReferenceId?: string }> | unknown;
+            if (Array.isArray(data) && data.length > 0 && typeof data[0]?.accountReferenceId === 'string') {
+                userId = data[0].accountReferenceId;
+            }
+        }
+    } catch (e) {
+        console.warn('[C1 Tracker] trips-API fallback for userId failed:', e);
+    }
+
+    if (!viewInstanceId && userId) {
+        try {
+            if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+                viewInstanceId = crypto.randomUUID();
+            }
+        } catch {
+            // ignore
+        }
+    }
+
+    if (userId && viewInstanceId) return { userId, viewInstanceId };
+    console.warn('[C1 Tracker] fetchOffersBrowseContext failed', { userId, viewInstanceId });
     return null;
 }
 
@@ -611,8 +730,17 @@ function renderBucket(meta: BucketMeta, offers: Offer[]): string {
         const endHtml = o.eventEnd
             ? `<span class="c1t-event-end">ends ${escapeHtml(eventEndDisplay(o.eventEnd))}</span>`
             : '';
-        const exclTitle = o.exclusions ? ` title="${escapeHtml(o.exclusions)}"` : '';
-        const exclShort = o.exclusions ? escapeHtml(o.exclusions) : '';
+        const exclText = o.exclusions ?? '';
+        const exclTitle = exclText ? ` title="${escapeHtml(exclText)}"` : '';
+        const exclShort = exclText ? escapeHtml(exclText) : '';
+        const exclLong = exclText.length > 60;
+        const exclHtml = !exclShort
+            ? ''
+            : exclLong
+                ? `<div class="c1t-excl-cell"${exclTitle}>
+                       <span class="c1t-excl-text">${exclShort}</span><button type="button" class="c1t-excl-toggle">(more)</button>
+                   </div>`
+                : `<div class="c1t-excl-cell"${exclTitle}><span class="c1t-excl-text">${exclShort}</span></div>`;
         return `<tr class="c1t-row-click"
             data-merchant="${escapeHtml(o.merchant)}"
             data-bucket-id="${escapeHtml(meta.id)}"
@@ -623,7 +751,7 @@ function renderBucket(meta: BucketMeta, offers: Offer[]): string {
             <td><span class="c1t-reward">${escapeHtml(o.rewardDisplay)}</span></td>
             <td>${pillHtml}</td>
             <td>${endHtml}</td>
-            <td><span class="c1t-exclusions"${exclTitle}>${exclShort}</span></td>
+            <td>${exclHtml}</td>
         </tr>`;
     }).join('');
 
@@ -641,7 +769,6 @@ function renderBucket(meta: BucketMeta, offers: Offer[]): string {
 
 function groupChipLabel(group: BucketMeta['group']): string {
     switch (group) {
-        case 'special': return 'Specials';
         case 'multiplier': return 'Multipliers';
         case 'percent': return 'Percent';
         case 'fixed-cash': return 'Cash';
@@ -651,30 +778,16 @@ function groupChipLabel(group: BucketMeta['group']): string {
 
 function buildQuickJumpChips(data: BrowseData): string {
     // Show one chip per top-level bucket group with at least one present bucket.
-    const present = new Set<string>();
-    for (const id of data.bucketOrder) {
-        const meta = BUCKET_META_BY_ID[id];
-        if (meta) present.add(meta.group);
-    }
-    // Also show a chip per specific present special bucket
+    // One chip per unit group present in the data (Multipliers, Percent, Cash, Points)
     const chips: string[] = [];
-    for (const id of data.bucketOrder) {
-        const meta = BUCKET_META_BY_ID[id];
-        if (!meta) continue;
-        if (meta.group === 'special') {
-            chips.push(`<button class="c1t-jump-chip" data-jump-to="${meta.id}">${escapeHtml(meta.label)}</button>`);
-        }
-    }
-    // Then non-special groups (first bucket in each group)
     const seenGroup = new Set<string>();
     for (const id of data.bucketOrder) {
         const meta = BUCKET_META_BY_ID[id];
-        if (!meta || meta.group === 'special') continue;
+        if (!meta) continue;
         if (seenGroup.has(meta.group)) continue;
         seenGroup.add(meta.group);
         chips.push(`<button class="c1t-jump-chip" data-jump-to="${meta.id}">${escapeHtml(groupChipLabel(meta.group))}</button>`);
     }
-    void present;
     return chips.join('');
 }
 
@@ -709,6 +822,21 @@ function attachRowClickDelegation(root: HTMLElement): void {
     root.addEventListener('click', (ev) => {
         const target = ev.target as HTMLElement | null;
         if (!target) return;
+
+        // Intercept the exclusions (more)/(less) toggle so it doesn't bubble
+        // up and activate the offer.
+        const toggle = target.closest('.c1t-excl-toggle') as HTMLElement | null;
+        if (toggle) {
+            ev.stopPropagation();
+            ev.preventDefault();
+            const cell = toggle.closest('.c1t-excl-cell') as HTMLElement | null;
+            if (cell) {
+                const expanded = cell.classList.toggle('c1t-excl-expanded');
+                toggle.textContent = expanded ? '(less)' : '(more)';
+            }
+            return;
+        }
+
         const row = target.closest('tr[data-method]') as HTMLElement | null;
         if (!row) return;
         if (row.dataset.method === 'href') {

@@ -541,14 +541,42 @@ export const STYLES = `
     .c1t-pill.deal { background: #ffb300 !important; color: #222 !important; }
     .c1t-pill.new { background: #2196f3 !important; }
     .c1t-pill.retarget { background: #9c27b0 !important; }
-    .c1t-exclusions {
+    .c1t-excl-cell {
         font-size: 11px !important;
         opacity: 0.7 !important;
-        max-width: 260px !important;
+        display: flex !important;
+        align-items: baseline !important;
+        gap: 4px !important;
+        max-width: 280px !important;
+    }
+    .c1t-excl-cell .c1t-excl-text {
+        flex: 1 1 auto !important;
+        min-width: 0 !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
         white-space: nowrap !important;
     }
+    .c1t-excl-cell.c1t-excl-expanded {
+        max-width: 420px !important;
+        align-items: flex-start !important;
+    }
+    .c1t-excl-cell.c1t-excl-expanded .c1t-excl-text {
+        white-space: normal !important;
+        text-overflow: clip !important;
+        overflow: visible !important;
+    }
+    .c1t-excl-toggle {
+        flex: 0 0 auto !important;
+        background: none !important;
+        border: none !important;
+        padding: 0 !important;
+        color: inherit !important;
+        opacity: 0.9 !important;
+        cursor: pointer !important;
+        font: inherit !important;
+        text-decoration: underline !important;
+    }
+    .c1t-excl-toggle:hover { opacity: 1 !important; }
     .c1t-event-end {
         font-size: 11px !important;
         opacity: 0.8 !important;
@@ -724,7 +752,14 @@ export const renderTripsToModal: RenderFn<TripsData> = (overlay, data) => {
 export function createUI<TData>(
     options: CreateUIOptions<TData>
 ): UIHandle<TData> {
-    const { onOpen, processedData: initialData, render, getBadgeCount } = options;
+    const {
+        onOpen,
+        processedData: initialData,
+        render,
+        getBadgeCount,
+        title = 'Shopping Trips Tracker',
+        loadingText = 'Waiting for data... Navigate to Shopping Trips page and data will load automatically.'
+    } = options;
 
     let stylesInjected = false;
     let currentData: TData | null | undefined = initialData;
@@ -751,7 +786,7 @@ export function createUI<TData>(
         const fab = document.createElement('button');
         fab.id = 'c1t-fab';
         fab.innerHTML = '📋';
-        fab.title = 'Shopping Trips Tracker';
+        fab.title = title;
 
         fab.addEventListener('click', async () => {
             const overlay = ensureOverlay();
@@ -796,11 +831,11 @@ export function createUI<TData>(
             overlay.innerHTML = `
                 <div id="c1t-modal">
                     <div id="c1t-header">
-                        <h2>📋 Shopping Trips Tracker</h2>
+                        <h2>📋 ${escapeHtml(title)}</h2>
                         <button id="c1t-close">✕</button>
                     </div>
                     <div id="c1t-content">
-                        <div id="c1t-loading">Waiting for data... Navigate to Shopping Trips page and data will load automatically.</div>
+                        <div id="c1t-loading">${escapeHtml(loadingText)}</div>
                     </div>
                 </div>
             `;

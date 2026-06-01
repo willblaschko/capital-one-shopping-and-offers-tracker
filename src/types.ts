@@ -281,6 +281,10 @@ export interface CreateUIOptions<TData> {
     processedData?: TData | null;
     render: RenderFn<TData>;
     getBadgeCount: BadgeCountFn<TData>;
+    /** Modal h2 title and FAB hover text. Defaults to "Shopping Trips Tracker". */
+    title?: string;
+    /** Initial loading text in the modal body. Defaults to a trips-flavored message. */
+    loadingText?: string;
 }
 
 export interface UIHandle<TData> {
