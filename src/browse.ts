@@ -581,12 +581,33 @@ function findKeyRecursive(obj: unknown, keys: string[], depth = 0): string | nul
 }
 
 /**
+ * Scan inline <script> bodies for a "<key>","<value>" pair in the React Router
+ * streamed context payload. Cap One Offers (Remix/RR) ships its loader data as
+ * comma-separated quoted strings inside streamController.enqueue(...) calls —
+ * e.g. ..."viewInstanceId","7001f5b9-..." and ..."maybeSelectedArid","TJfjNq...".
+ * Returns the first match across all scripts.
+ */
+function findInRouterStream(key: string): string | null {
+    const re = new RegExp(`"${key}"\\s*,\\s*"([^"\\\\]+)"`);
+    const scripts = document.getElementsByTagName('script');
+    for (let i = 0; i < scripts.length; i++) {
+        const text = scripts[i].textContent;
+        if (!text || text.indexOf(key) < 0) continue;
+        const m = text.match(re);
+        if (m && m[1]) return m[1];
+    }
+    return null;
+}
+
+/**
  * Discover userId + viewInstanceId from the live page.
  * Sources (in order):
  *   1) URL query string  — viewInstanceId on the feed page is exposed as ?viewInstanceId=...
  *   2) URL path          — /feed/{userId}
- *   3) __NEXT_DATA__     — Next.js inlined page props (fallback if URL is bare)
- *   4) Generated UUID    — last-resort fallback for viewInstanceId only
+ *   3) RR stream scripts — Remix React Router context streamed in inline <script>
+ *                          (maybeSelectedArid = userId; viewInstanceId)
+ *   4) __NEXT_DATA__     — legacy Next.js inlined page props (kept for safety)
+ *   5) Generated UUID    — last-resort fallback for viewInstanceId only
  * Returns null when both fields can't be obtained.
  */
 export function getOffersBrowseContext(): OffersBrowseContext | null {
@@ -605,7 +626,11 @@ export function getOffersBrowseContext(): OffersBrowseContext | null {
     const pathMatch = window.location.pathname.match(/^\/feed\/([^/?#]+)/);
     if (pathMatch && pathMatch[1]) userId = decodeURIComponent(pathMatch[1]);
 
-    // 3) __NEXT_DATA__ fallback for either field
+    // 3) React Router streamed context (present from first paint on /feed)
+    if (!userId) userId = findInRouterStream('maybeSelectedArid');
+    if (!viewInstanceId) viewInstanceId = findInRouterStream('viewInstanceId');
+
+    // 4) __NEXT_DATA__ fallback for either field
     if (!userId || !viewInstanceId) {
         try {
             const el = document.getElementById('__NEXT_DATA__');
@@ -666,7 +691,7 @@ export async function fetchOffersBrowseContext(): Promise<OffersBrowseContext | 
     // Pull userId from the offers trips API — every entry carries accountReferenceId.
     try {
         const r = await fetch(
-            '/c1-offers/shopping-trips?limit=1&offset=0&version=2&_data=routes%2Fc1-offers.shopping-trips',
+            '/xhr/c1-offers/shopping-trips?limit=1&offset=0',
             { method: 'POST', credentials: 'include' }
         );
         if (r.ok) {

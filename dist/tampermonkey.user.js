@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.0.0
+// @version      3.0.1
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*
@@ -22,8 +22,8 @@
       hostname: "capitaloneoffers",
       pages: { trips: "/c1-offers/shopping-trips", browse: "/feed" },
       trips: {
-        apiPattern: (url) => url.includes("shopping-trips") && url.includes("version=2") && url.includes("_data="),
-        apiEndpoint: "/c1-offers/shopping-trips?limit=300&offset=0&version=2&_data=routes%2Fc1-offers.shopping-trips"
+        apiPattern: (url) => url.includes("/xhr/c1-offers/shopping-trips"),
+        apiEndpoint: "/xhr/c1-offers/shopping-trips?limit=300&offset=0"
       },
       browse: {
         apiPattern: (url) => url.includes("/feed/") && url.includes("viewInstanceId=")
@@ -1179,6 +1179,17 @@
     }
     return null;
   }
+  function findInRouterStream(key) {
+    const re = new RegExp(`"${key}"\\s*,\\s*"([^"\\\\]+)"`);
+    const scripts = document.getElementsByTagName("script");
+    for (let i = 0; i < scripts.length; i++) {
+      const text = scripts[i].textContent;
+      if (!text || text.indexOf(key) < 0) continue;
+      const m = text.match(re);
+      if (m && m[1]) return m[1];
+    }
+    return null;
+  }
   function getOffersBrowseContext() {
     let userId = null;
     let viewInstanceId = null;
@@ -1189,6 +1200,8 @@
     }
     const pathMatch = window.location.pathname.match(/^\/feed\/([^/?#]+)/);
     if (pathMatch && pathMatch[1]) userId = decodeURIComponent(pathMatch[1]);
+    if (!userId) userId = findInRouterStream("maybeSelectedArid");
+    if (!viewInstanceId) viewInstanceId = findInRouterStream("viewInstanceId");
     if (!userId || !viewInstanceId) {
       try {
         const el = document.getElementById("__NEXT_DATA__");
@@ -1230,7 +1243,7 @@
     }
     try {
       const r = await fetch(
-        "/c1-offers/shopping-trips?limit=1&offset=0&version=2&_data=routes%2Fc1-offers.shopping-trips",
+        "/xhr/c1-offers/shopping-trips?limit=1&offset=0",
         { method: "POST", credentials: "include" }
       );
       if (r.ok) {

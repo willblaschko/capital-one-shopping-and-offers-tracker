@@ -20,11 +20,8 @@ export const CONFIG: ConfigMap = {
         pages: { trips: '/c1-offers/shopping-trips', browse: '/feed' },
         trips: {
             apiPattern: (url: string) =>
-                url.includes('shopping-trips') &&
-                url.includes('version=2') &&
-                url.includes('_data='),
-            apiEndpoint:
-                '/c1-offers/shopping-trips?limit=300&offset=0&version=2&_data=routes%2Fc1-offers.shopping-trips'
+                url.includes('/xhr/c1-offers/shopping-trips'),
+            apiEndpoint: '/xhr/c1-offers/shopping-trips?limit=300&offset=0'
         },
         browse: {
             apiPattern: (url: string) =>

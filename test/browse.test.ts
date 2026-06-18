@@ -898,6 +898,24 @@ describe('getOffersBrowseContext', () => {
         window.location.href = original;
     });
 
+    it('reads userId from React Router streamed context (maybeSelectedArid) on bare /feed', () => {
+        const original = window.location.href;
+        window.location.href = 'https://capitaloneoffers.com/feed?viewInstanceId=VI_FROM_URL';
+
+        const script = document.createElement('script');
+        // Mimic the streamController.enqueue(...) payload Cap One ships in HTML.
+        script.textContent =
+            'window.__reactRouterContext.streamController.enqueue("[..."viewInstanceId","VI_FROM_STREAM","contentSlug","ease-web-l1","arids",[46,47],"maybeSelectedArid","TJfjNqXyHfUR6LOXOM5JO+1986oAIJkyINGe4MgiUAI=",..."]\\n");';
+        document.body.appendChild(script);
+
+        const c = getOffersBrowseContext();
+        expect(c).not.toBeNull();
+        // URL query wins for viewInstanceId; userId comes from the RR stream.
+        expect(c!.userId).toBe('TJfjNqXyHfUR6LOXOM5JO+1986oAIJkyINGe4MgiUAI=');
+        expect(c!.viewInstanceId).toBe('VI_FROM_URL');
+        window.location.href = original;
+    });
+
     it('falls back to URL path /feed/{userId} + generated viewInstanceId when __NEXT_DATA__ absent', () => {
         const original = window.location.href;
         window.location.href = 'https://capitaloneoffers.com/feed/USER_FROM_URL';

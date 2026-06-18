@@ -113,12 +113,10 @@ describe('CONFIG api patterns (tampermonkey URL classification)', () => {
         expect(b('https://capitaloneshopping.com/api/v1/feed/other')).toBe(false);
     });
 
-    it('offers trips pattern matches the shopping-trips _data endpoint, not /feed/{id}', () => {
+    it('offers trips pattern matches the /xhr/c1-offers/shopping-trips endpoint, not /feed/{id}', () => {
         const t = CONFIG.offers.trips.apiPattern;
         expect(
-            t(
-                'https://capitaloneoffers.com/c1-offers/shopping-trips?limit=300&offset=0&version=2&_data=routes%2Fc1-offers.shopping-trips'
-            )
+            t('https://capitaloneoffers.com/xhr/c1-offers/shopping-trips?limit=300&offset=0')
         ).toBe(true);
         expect(
             t(
@@ -136,9 +134,7 @@ describe('CONFIG api patterns (tampermonkey URL classification)', () => {
         ).toBe(true);
         // trips URL has no viewInstanceId — must reject
         expect(
-            b(
-                'https://capitaloneoffers.com/c1-offers/shopping-trips?_data=routes%2Fc1-offers.shopping-trips'
-            )
+            b('https://capitaloneoffers.com/xhr/c1-offers/shopping-trips?limit=300&offset=0')
         ).toBe(false);
     });
 });
