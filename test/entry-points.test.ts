@@ -112,27 +112,35 @@ describe('CONFIG api patterns (tampermonkey URL classification)', () => {
 });
 
 //-----------------------------------------------------------------------------
-// 3) bookmarklet-full.ts mode dispatch
+// 3) Entry-point dispatch (bookmarklet-full + tampermonkey)
 //
-// We swap out ./core.js and ./browse.js with fakes so we can inspect what
-// createUI is invoked with and confirm walker → processBrowseData → updateData
-// data flow.
+// Both entries call `createTabbedUI({ tabs: [Trips, Browse], defaultTabId })`.
+// We mock ./core.js and ./browse.js so we can capture the call and drive the
+// tab loaders directly to verify walker/fetch wiring.
 //-----------------------------------------------------------------------------
 
-type CreateUICall = {
-    /** Captured render fn — identity-checked against the renderer the entry passed */
+interface CapturedTab {
+    id: string;
+    label: string;
     render: unknown;
-    getBadgeCount: (d: unknown) => number;
-    processedData: unknown;
-    onOpen?: () => void | Promise<void>;
-};
+    getBadgeCount?: (d: unknown) => number;
+    onActivate?: () => Promise<unknown>;
+    loadingText?: string;
+}
 
-interface MockUIHandle<T> {
+interface CreateTabbedUICall {
+    title: string;
+    defaultTabId: string;
+    tabs: CapturedTab[];
+}
+
+interface MockTabbedHandle {
     ensureFab: () => HTMLElement;
     ensureOverlay: () => HTMLElement;
     ensureStyles: () => void;
-    updateFabState: (fab: HTMLElement, data: T) => void;
-    updateData: (data: T) => void;
+    setActiveTab: (id: string) => void;
+    setTabData: (id: string, data: unknown) => void;
+    getActiveTabId: () => string;
 }
 
 interface MockCoreExports {
@@ -141,12 +149,12 @@ interface MockCoreExports {
     detectMode: () => 'trips' | 'browse' | null;
     processTripsData: (raw: unknown) => TripsData;
     renderTripsToModal: unknown;
-    createUI: <T>(opts: {
-        onOpen?: () => void | Promise<void>;
-        processedData?: T | null;
-        render: unknown;
-        getBadgeCount: (d: T) => number;
-    }) => MockUIHandle<T>;
+    fetchAllOffersTrips: ReturnType<typeof vi.fn>;
+    createTabbedUI: (opts: {
+        title: string;
+        defaultTabId: string;
+        tabs: CapturedTab[];
+    }) => MockTabbedHandle;
 }
 
 interface MockBrowseExports {
@@ -168,25 +176,23 @@ function makeMocks(opts: {
 }): {
     core: MockCoreExports;
     browse: MockBrowseExports;
-    createUICalls: CreateUICall[];
-    updates: Array<{ which: 'trips' | 'browse'; data: unknown }>;
+    createTabbedUICalls: CreateTabbedUICall[];
+    tabDataSet: Array<{ id: string; data: unknown }>;
     tripsRenderer: object;
     browseRenderer: object;
 } {
-    const createUICalls: CreateUICall[] = [];
-    const updates: Array<{ which: 'trips' | 'browse'; data: unknown }> = [];
+    const createTabbedUICalls: CreateTabbedUICall[] = [];
+    const tabDataSet: Array<{ id: string; data: unknown }> = [];
     const tripsRenderer = { __id: 'renderTripsToModal' };
     const browseRenderer = { __id: 'renderBrowseToModal' };
 
-    const createUI: MockCoreExports['createUI'] = (cfg) => {
-        const which: 'trips' | 'browse' =
-            cfg.render === tripsRenderer ? 'trips' : 'browse';
-        createUICalls.push({
-            render: cfg.render,
-            getBadgeCount: cfg.getBadgeCount as (d: unknown) => number,
-            processedData: cfg.processedData,
-            ...(cfg.onOpen ? { onOpen: cfg.onOpen } : {})
+    const createTabbedUI: MockCoreExports['createTabbedUI'] = (cfg) => {
+        createTabbedUICalls.push({
+            title: cfg.title,
+            defaultTabId: cfg.defaultTabId,
+            tabs: cfg.tabs
         });
+        let active = cfg.defaultTabId;
         return {
             ensureFab: () => {
                 let fab = document.getElementById('c1t-fab');
@@ -209,10 +215,21 @@ function makeMocks(opts: {
                 return overlay;
             },
             ensureStyles: () => {},
-            updateFabState: () => {},
-            updateData: (d) => {
-                updates.push({ which, data: d });
-            }
+            setActiveTab: (id: string) => {
+                active = id;
+                const tab = cfg.tabs.find((t) => t.id === id);
+                if (tab?.onActivate) {
+                    // Fire loader; test observes side effects via mocks.
+                    void tab.onActivate().catch((e) => {
+                        const c = document.querySelector('#c1t-loading');
+                        if (c) c.textContent = e instanceof Error ? e.message : String(e);
+                    });
+                }
+            },
+            setTabData: (id: string, data: unknown) => {
+                tabDataSet.push({ id, data });
+            },
+            getActiveTabId: () => active
         };
     };
 
@@ -220,12 +237,10 @@ function makeMocks(opts: {
         CONFIG,
         getCurrentSite: () => opts.site,
         detectMode: () => opts.mode,
-        processTripsData: (raw: unknown) => {
-            // Stub: pretend input was already a TripsData shape.
-            return raw as TripsData;
-        },
+        processTripsData: (raw: unknown) => raw as TripsData,
         renderTripsToModal: tripsRenderer,
-        createUI
+        fetchAllOffersTrips: vi.fn(async () => ({ data: [] })),
+        createTabbedUI
     };
 
     const browse: MockBrowseExports = {
@@ -249,17 +264,63 @@ function makeMocks(opts: {
     return {
         core,
         browse,
-        createUICalls,
-        updates,
+        createTabbedUICalls,
+        tabDataSet,
         tripsRenderer,
         browseRenderer
     };
 }
 
-describe('bookmarklet-full entry — mode dispatch', () => {
-    it('mode==="trips" on shopping wires renderTripsToModal and fetches trip_orders', async () => {
+describe('bookmarklet-full entry — tabbed UI construction', () => {
+    it('constructs a two-tab UI (Trips + Browse) with defaultTab=trips on a trips path', async () => {
         window.location.href =
             'https://capitaloneshopping.com/account-settings/shopping-trips';
+        const m = makeMocks({ site: 'shopping', mode: 'trips' });
+        vi.doMock('../src/core.js', () => m.core);
+        vi.doMock('../src/browse.js', () => m.browse);
+
+        await import('../src/bookmarklet-full.js');
+        await new Promise((r) => setTimeout(r, 0));
+
+        expect(m.createTabbedUICalls.length).toBe(1);
+        const call = m.createTabbedUICalls[0]!;
+        expect(call.defaultTabId).toBe('trips');
+        expect(call.tabs.map((t) => t.id)).toEqual(['trips', 'browse']);
+        expect(call.tabs.find((t) => t.id === 'trips')!.render).toBe(m.tripsRenderer);
+        expect(call.tabs.find((t) => t.id === 'browse')!.render).toBe(m.browseRenderer);
+    });
+
+    it('picks defaultTab=browse when detectMode() is "browse"', async () => {
+        window.location.href = 'https://capitaloneshopping.com/';
+        const m = makeMocks({ site: 'shopping', mode: 'browse' });
+        vi.doMock('../src/core.js', () => m.core);
+        vi.doMock('../src/browse.js', () => m.browse);
+
+        await import('../src/bookmarklet-full.js');
+        await new Promise((r) => setTimeout(r, 0));
+
+        expect(m.createTabbedUICalls[0]!.defaultTabId).toBe('browse');
+    });
+
+    it('falls back to defaultTab=trips on a non-canonical Cap One path (no alert)', async () => {
+        window.location.href =
+            'https://capitaloneshopping.com/account-settings/profile';
+        const m = makeMocks({ site: 'shopping', mode: null });
+        const alertMock = vi.fn();
+        vi.stubGlobal('alert', alertMock);
+        vi.doMock('../src/core.js', () => m.core);
+        vi.doMock('../src/browse.js', () => m.browse);
+
+        await import('../src/bookmarklet-full.js');
+        await new Promise((r) => setTimeout(r, 0));
+
+        expect(alertMock).not.toHaveBeenCalled();
+        expect(m.createTabbedUICalls.length).toBe(1);
+        expect(m.createTabbedUICalls[0]!.defaultTabId).toBe('trips');
+    });
+
+    it('Trips tab onActivate hits the shopping trips endpoint via fetch', async () => {
+        window.location.href = 'https://capitaloneshopping.com/';
         const m = makeMocks({ site: 'shopping', mode: 'trips' });
         const fetchMock = vi.fn().mockResolvedValue({
             ok: true,
@@ -270,37 +331,58 @@ describe('bookmarklet-full entry — mode dispatch', () => {
         vi.doMock('../src/browse.js', () => m.browse);
 
         await import('../src/bookmarklet-full.js');
-        // Yield microtasks so the inner async fetch chain completes.
         await new Promise((r) => setTimeout(r, 0));
         await new Promise((r) => setTimeout(r, 0));
 
-        // Trips createUI registered with the trips renderer
-        const trips = m.createUICalls.find((c) => c.render === m.tripsRenderer);
-        expect(trips).toBeDefined();
-        // Badge count function comes from stats.withCredit
+        const tripsTab = m.createTabbedUICalls[0]!.tabs.find((t) => t.id === 'trips')!;
+        expect(tripsTab.onActivate).toBeDefined();
+        const data = await tripsTab.onActivate!();
+        expect(fetchMock).toHaveBeenCalled();
+        expect(String(fetchMock.mock.calls[0]![0])).toContain('/api/v1/trip_orders');
+        expect(data).toBeTruthy();
+    });
+
+    it('Trips tab on offers routes through fetchAllOffersTrips (pagination)', async () => {
+        window.location.href = 'https://capitaloneoffers.com/shopping-trips';
+        const m = makeMocks({ site: 'offers', mode: 'trips' });
+        m.core.fetchAllOffersTrips.mockResolvedValue({ data: [{ vendor: 'V' }] });
+        vi.doMock('../src/core.js', () => m.core);
+        vi.doMock('../src/browse.js', () => m.browse);
+
+        await import('../src/bookmarklet-full.js');
+        await new Promise((r) => setTimeout(r, 0));
+
+        const tripsTab = m.createTabbedUICalls[0]!.tabs.find((t) => t.id === 'trips')!;
+        await tripsTab.onActivate!();
+        expect(m.core.fetchAllOffersTrips).toHaveBeenCalled();
+    });
+
+    it('Browse tab getBadgeCount is NOT defined (trips tab drives the badge)', async () => {
+        window.location.href = 'https://capitaloneoffers.com/feed';
+        const m = makeMocks({ site: 'offers', mode: 'browse' });
+        vi.doMock('../src/core.js', () => m.core);
+        vi.doMock('../src/browse.js', () => m.browse);
+
+        await import('../src/bookmarklet-full.js');
+        await new Promise((r) => setTimeout(r, 0));
+
+        const tabs = m.createTabbedUICalls[0]!.tabs;
+        const tripsTab = tabs.find((t) => t.id === 'trips')!;
+        const browseTab = tabs.find((t) => t.id === 'browse')!;
+        expect(tripsTab.getBadgeCount).toBeDefined();
         const stats: TripsData['stats'] = {
             total: 0,
             withOrderId: 0,
             withAmount: 0,
-            withCredit: 7,
+            withCredit: 9,
             pending: 0,
             created: 0
         };
-        expect(
-            trips!.getBadgeCount({ trips: [], stats } as TripsData)
-        ).toBe(7);
-
-        // fetch was called against the shopping trips endpoint
-        expect(fetchMock).toHaveBeenCalled();
-        const callArg = fetchMock.mock.calls[0]![0];
-        expect(String(callArg)).toContain('/api/v1/trip_orders');
-
-        // No browse walkers invoked in trips mode
-        expect(m.browse.walkShoppingFeed).not.toHaveBeenCalled();
-        expect(m.browse.walkOffersFeed).not.toHaveBeenCalled();
+        expect(tripsTab.getBadgeCount!({ trips: [], stats } as TripsData)).toBe(9);
+        expect(browseTab.getBadgeCount).toBeUndefined();
     });
 
-    it('mode==="browse" on shopping wires renderBrowseToModal, calls walkShoppingFeed and pipes items through processBrowseData', async () => {
+    it('Browse tab on shopping calls walkShoppingFeed → processBrowseData', async () => {
         window.location.href = 'https://capitaloneshopping.com/';
         const m = makeMocks({ site: 'shopping', mode: 'browse' });
         const fakeOffers = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
@@ -314,39 +396,16 @@ describe('bookmarklet-full entry — mode dispatch', () => {
 
         await import('../src/bookmarklet-full.js');
         await new Promise((r) => setTimeout(r, 0));
-        await new Promise((r) => setTimeout(r, 0));
 
-        const browseCall = m.createUICalls.find(
-            (c) => c.render === m.browseRenderer
-        );
-        expect(browseCall).toBeDefined();
-
-        // Badge function reads stats.total
-        const fakeData: BrowseData = {
-            offers: [],
-            buckets: {},
-            bucketOrder: [],
-            stats: { total: 12, byBucket: {} }
-        };
-        expect(browseCall!.getBadgeCount(fakeData)).toBe(12);
-
-        // walkShoppingFeed kicked off, walkOffersFeed not
+        const browseTab = m.createTabbedUICalls[0]!.tabs.find((t) => t.id === 'browse')!;
+        const data = (await browseTab.onActivate!()) as BrowseData;
         expect(m.browse.walkShoppingFeed).toHaveBeenCalled();
-        expect(m.browse.walkOffersFeed).not.toHaveBeenCalled();
-
-        // walker items piped through processBrowseData
         expect(m.browse.processBrowseData).toHaveBeenCalledWith(fakeOffers);
-
-        // updateData called once with the processed BrowseData on the browse UI
-        const browseUpdates = m.updates.filter((u) => u.which === 'browse');
-        expect(browseUpdates.length).toBe(1);
-        const updateData = browseUpdates[0]!.data as BrowseData;
-        expect(updateData.stats.total).toBe(fakeOffers.length);
-        expect(updateData.stats.pagesWalked).toBe(4);
-        expect(updateData.stats.hitCap).toBe(false);
+        expect(data.stats.pagesWalked).toBe(4);
+        expect(data.stats.hitCap).toBe(false);
     });
 
-    it('mode==="browse" on offers with no context shows error and does NOT walk', async () => {
+    it('Browse tab on offers with no context throws (surfaces error to modal)', async () => {
         window.location.href = 'https://capitaloneoffers.com/feed';
         const m = makeMocks({ site: 'offers', mode: 'browse' });
         m.browse.fetchOffersBrowseContext.mockResolvedValue(null);
@@ -355,16 +414,13 @@ describe('bookmarklet-full entry — mode dispatch', () => {
 
         await import('../src/bookmarklet-full.js');
         await new Promise((r) => setTimeout(r, 0));
-        await new Promise((r) => setTimeout(r, 0));
 
-        expect(m.browse.fetchOffersBrowseContext).toHaveBeenCalled();
+        const browseTab = m.createTabbedUICalls[0]!.tabs.find((t) => t.id === 'browse')!;
+        await expect(browseTab.onActivate!()).rejects.toThrow(/context|userId/i);
         expect(m.browse.walkOffersFeed).not.toHaveBeenCalled();
-
-        const loading = document.querySelector('#c1t-loading');
-        expect(loading?.textContent ?? '').toMatch(/context|userId|diagnostics/i);
     });
 
-    it('mode==="browse" on offers WITH context calls walkOffersFeed(ctx, onPage)', async () => {
+    it('Browse tab on offers WITH context calls walkOffersFeed(ctx, onPage) on mount (defaultTab=browse)', async () => {
         window.location.href = 'https://capitaloneoffers.com/feed';
         const m = makeMocks({ site: 'offers', mode: 'browse' });
         const ctx = { userId: 'u-1', viewInstanceId: 'v-1' };
@@ -378,128 +434,56 @@ describe('bookmarklet-full entry — mode dispatch', () => {
         vi.doMock('../src/browse.js', () => m.browse);
 
         await import('../src/bookmarklet-full.js');
+        // Let the default-tab onActivate promise chain drain.
         await new Promise((r) => setTimeout(r, 0));
         await new Promise((r) => setTimeout(r, 0));
 
+        // defaultTab='browse' → setActiveTab fires the browse loader once on mount.
         expect(m.browse.walkOffersFeed).toHaveBeenCalledTimes(1);
         const args = m.browse.walkOffersFeed.mock.calls[0]!;
         expect(args[0]).toEqual(ctx);
         expect(typeof args[1]).toBe('function'); // onPage callback
-
-        const browseUpdates = m.updates.filter((u) => u.which === 'browse');
-        expect(browseUpdates.length).toBe(1);
-        const data = browseUpdates[0]!.data as BrowseData;
-        expect(data.stats.hitCap).toBe(true);
-        expect(data.stats.pagesWalked).toBe(40);
-    });
-
-    it('mode===null alerts the user instead of doing anything', async () => {
-        window.location.href =
-            'https://capitaloneshopping.com/account-settings/profile';
-        const m = makeMocks({ site: 'shopping', mode: null });
-        const alertMock = vi.fn();
-        vi.stubGlobal('alert', alertMock);
-        vi.doMock('../src/core.js', () => m.core);
-        vi.doMock('../src/browse.js', () => m.browse);
-
-        await import('../src/bookmarklet-full.js');
-        await new Promise((r) => setTimeout(r, 0));
-
-        expect(alertMock).toHaveBeenCalledTimes(1);
-        const alertMsg = String(alertMock.mock.calls[0]![0]);
-        expect(alertMsg.toLowerCase()).toMatch(/trips|browse|navigate/);
-        // No createUI invocations
-        expect(m.createUICalls.length).toBe(0);
     });
 });
 
 //-----------------------------------------------------------------------------
-// 4) Tampermonkey entry — mode-aware FAB management
+// 4) Tampermonkey entry — persistent tabbed FAB + trips interceptor
 //-----------------------------------------------------------------------------
 
-describe('tampermonkey entry — dual-mode FAB', () => {
-    it('on trips page: creates trips-mode createUI and ensures FAB exists', async () => {
-        window.location.href =
-            'https://capitaloneshopping.com/account-settings/shopping-trips';
-        const m = makeMocks({ site: 'shopping', mode: 'trips' });
+describe('tampermonkey entry — tabbed FAB + interceptor', () => {
+    it('constructs the tabbed UI and ensures a FAB on any Cap One page', async () => {
+        window.location.href = 'https://capitaloneoffers.com/anything';
+        const m = makeMocks({ site: 'offers', mode: null });
         vi.doMock('../src/core.js', () => m.core);
         vi.doMock('../src/browse.js', () => m.browse);
 
         await import('../src/tampermonkey.js');
-        // Allow the keepAlive timer + observer to settle
         await new Promise((r) => setTimeout(r, 0));
 
-        // Both createUI instances were constructed (trips + browse) — that's
-        // intentional, per the dual-instance plan. The trips one should be present.
-        const trips = m.createUICalls.find((c) => c.render === m.tripsRenderer);
-        const browse = m.createUICalls.find((c) => c.render === m.browseRenderer);
-        expect(trips).toBeDefined();
-        expect(browse).toBeDefined();
-
-        // FAB rendered (trips ensureFab was called on init via keepAlive)
+        expect(m.createTabbedUICalls.length).toBe(1);
+        expect(m.createTabbedUICalls[0]!.tabs.map((t) => t.id)).toEqual(['trips', 'browse']);
         expect(document.getElementById('c1t-fab')).not.toBeNull();
     });
 
-    it('on browse page: creates browse-mode createUI with stats.total badge fn', async () => {
-        window.location.href = 'https://capitaloneshopping.com/';
-        const m = makeMocks({ site: 'shopping', mode: 'browse' });
+    it('picks the default active tab from detectMode() (browse on /feed)', async () => {
+        window.location.href = 'https://capitaloneoffers.com/feed';
+        const m = makeMocks({ site: 'offers', mode: 'browse' });
         vi.doMock('../src/core.js', () => m.core);
         vi.doMock('../src/browse.js', () => m.browse);
 
         await import('../src/tampermonkey.js');
         await new Promise((r) => setTimeout(r, 0));
 
-        const browse = m.createUICalls.find((c) => c.render === m.browseRenderer);
-        expect(browse).toBeDefined();
-        const data: BrowseData = {
-            offers: [],
-            buckets: {},
-            bucketOrder: [],
-            stats: { total: 42, byBucket: {} }
-        };
-        expect(browse!.getBadgeCount(data)).toBe(42);
-
-        expect(document.getElementById('c1t-fab')).not.toBeNull();
+        expect(m.createTabbedUICalls[0]!.defaultTabId).toBe('browse');
     });
 
-    it('on a non-target path: both createUI instances still register (but neither FAB is ensured)', async () => {
-        window.location.href =
-            'https://capitaloneshopping.com/account-settings/profile';
-        const m = makeMocks({ site: 'shopping', mode: null });
-        vi.doMock('../src/core.js', () => m.core);
-        vi.doMock('../src/browse.js', () => m.browse);
-
-        await import('../src/tampermonkey.js');
-        await new Promise((r) => setTimeout(r, 0));
-
-        // Both createUI instances should have been constructed eagerly, so
-        // the renderer/badge wiring is in place even on a non-target route.
-        // The mode-aware keepAlive simply doesn't call ensureFab() for either
-        // until detectMode() resolves to trips or browse.
-        const trips = m.createUICalls.find((c) => c.render === m.tripsRenderer);
-        const browse = m.createUICalls.find((c) => c.render === m.browseRenderer);
-        expect(trips).toBeDefined();
-        expect(browse).toBeDefined();
-    });
-
-    it('fetch interception only fires trips API handler on trips-pattern URLs', async () => {
+    it('fetch interception warms the Trips tab via setTabData, only on trips URLs', async () => {
         window.location.href =
             'https://capitaloneshopping.com/account-settings/shopping-trips';
         const m = makeMocks({ site: 'shopping', mode: 'trips' });
 
-        // Capture the trips updateData path indirectly: processTripsData mock
-        const seen: unknown[] = [];
-        m.core.processTripsData = (raw: unknown) => {
-            seen.push(raw);
-            return raw as TripsData;
-        };
-
-        // Make the fetched response shape easy to clone
         const tripsBody = { items: [{ vendor: 'Z' }] };
         const browseBody = { items: [{ type: 'great_deal' }] };
-
-        // The interceptor wraps the real window.fetch. We stub the underlying
-        // fetch the interceptor will call.
         const baseFetch = vi.fn(async (req: unknown): Promise<Response> => {
             const url = String(req);
             const body = url.includes('/api/v1/feed') ? browseBody : tripsBody;
@@ -516,15 +500,42 @@ describe('tampermonkey entry — dual-mode FAB', () => {
         await import('../src/tampermonkey.js');
         await new Promise((r) => setTimeout(r, 0));
 
-        // Now exercise the wrapped fetch
         await window.fetch('https://capitaloneshopping.com/api/v1/trip_orders');
         await window.fetch('https://capitaloneshopping.com/api/v1/feed');
-        // Yield for the clone().json() chain
         await new Promise((r) => setTimeout(r, 0));
         await new Promise((r) => setTimeout(r, 0));
 
-        // Only the trips URL went through processTripsData
-        expect(seen.length).toBe(1);
-        expect(seen[0]).toEqual(tripsBody);
+        // Only the trips URL warmed the trips tab
+        const tripsWarms = m.tabDataSet.filter((d) => d.id === 'trips');
+        expect(tripsWarms.length).toBe(1);
+        expect(tripsWarms[0]!.data).toEqual(tripsBody);
+        expect(m.tabDataSet.filter((d) => d.id === 'browse').length).toBe(0);
+    });
+
+    it('offers trips interceptor does NOT warm cache when response has hasMore=true (defers to paginator)', async () => {
+        window.location.href = 'https://capitaloneoffers.com/shopping-trips';
+        const m = makeMocks({ site: 'offers', mode: 'trips' });
+
+        // Simulate a partial page-1 response
+        const baseFetch = vi.fn(async (): Promise<Response> => {
+            return new Response(JSON.stringify({ data: [{ vendor: 'X' }], hasMore: true }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        });
+        vi.stubGlobal('fetch', baseFetch);
+
+        vi.doMock('../src/core.js', () => m.core);
+        vi.doMock('../src/browse.js', () => m.browse);
+
+        await import('../src/tampermonkey.js');
+        await new Promise((r) => setTimeout(r, 0));
+
+        await window.fetch('https://capitaloneoffers.com/xhr/shopping-trips?limit=100&offset=0');
+        await new Promise((r) => setTimeout(r, 0));
+        await new Promise((r) => setTimeout(r, 0));
+
+        // Interceptor saw the response but did NOT warm the cache — hasMore=true
+        expect(m.tabDataSet.filter((d) => d.id === 'trips').length).toBe(0);
     });
 });

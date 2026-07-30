@@ -273,26 +273,52 @@ export interface OffersBrowseContext {
 
 // ---- UI factory ----
 
+// Renderers accept `unknown` data because the tabbed UI holds a heterogeneous
+// mix (TripsData vs BrowseData). Individual renderers cast internally, as they
+// always did — the tab boundary is the natural erasure point.
 export type RenderFn<TData> = (overlay: HTMLElement, data: TData) => void;
 export type BadgeCountFn<TData> = (data: TData) => number;
 
-export interface CreateUIOptions<TData> {
-    onOpen?: () => void | Promise<void>;
-    processedData?: TData | null;
+export interface TabDef<TData = unknown> {
+    /** Stable ID used to key data + activation (e.g. 'trips', 'browse'). */
+    id: string;
+    /** Human-readable label rendered in the tab bar. */
+    label: string;
+    /** Renderer for this tab's content. Called with the current data when active. */
     render: RenderFn<TData>;
-    getBadgeCount: BadgeCountFn<TData>;
-    /** Modal h2 title and FAB hover text. Defaults to "Shopping Trips Tracker". */
-    title?: string;
-    /** Initial loading text in the modal body. Defaults to a trips-flavored message. */
+    /** Optional badge source. If defined AND returns > 0, drives the FAB badge. */
+    getBadgeCount?: BadgeCountFn<TData>;
+    /**
+     * Lazy loader — called on first activation if no data has been supplied.
+     * Return value is cached; subsequent activations skip the call.
+     */
+    onActivate?: () => Promise<TData | null>;
+    /** Text shown in the tab body while onActivate is in flight. */
     loadingText?: string;
 }
 
-export interface UIHandle<TData> {
+export interface CreateTabbedUIOptions {
+    /** Modal h2 title and FAB hover text. */
+    title: string;
+    /** Tabs, rendered left-to-right in this order. Must be non-empty. */
+    tabs: Array<TabDef<unknown>>;
+    /** ID of the tab that's active on first FAB open. Must match one of the tabs. */
+    defaultTabId: string;
+}
+
+export interface TabbedUIHandle {
     ensureStyles: () => void;
     ensureFab: () => HTMLElement;
     ensureOverlay: () => HTMLElement;
-    updateFabState: (fab: HTMLElement, data: TData) => void;
-    updateData: (data: TData) => void;
+    /** Switch the active tab. Fires onActivate if that tab has no data yet. */
+    setActiveTab: (id: string) => void;
+    /**
+     * Warm a tab's cache without triggering its loader (used by the fetch
+     * interceptor to pre-populate the Trips tab).
+     */
+    setTabData: (id: string, data: unknown) => void;
+    /** Current active tab id (mainly for tests). */
+    getActiveTabId: () => string;
 }
 
 // ---- Walker ----

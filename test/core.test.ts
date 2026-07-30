@@ -4,7 +4,7 @@
 //=============================================================================
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import type { RawTrip, TripsData, RenderFn } from '../src/types.js';
+import type { RawTrip, TripsData } from '../src/types.js';
 import {
     detectMode,
     getCurrentSite,
@@ -13,7 +13,7 @@ import {
     extractTripsArray,
     normalizeTrip,
     processTripsData,
-    createUI,
+    createTabbedUI,
     renderTripsToModal,
     formatCurrency,
     formatDate,
@@ -331,47 +331,140 @@ describe('fetchAllOffersTrips', () => {
 });
 
 //-----------------------------------------------------------------------------
-// createUI smoke test — injected render is wired through updateData
+// createTabbedUI — tab activation, caching, badge from Trips tab only
 //-----------------------------------------------------------------------------
 
-describe('createUI', () => {
+describe('createTabbedUI', () => {
     beforeEach(() => {
         document.body.innerHTML = '';
         document.head.innerHTML = '';
     });
 
-    it('calls injected render with (overlay, data) when updateData runs after ensureOverlay', () => {
-        const renderMock = vi.fn<RenderFn<{ count: number }>>();
-        const ui = createUI<{ count: number }>({
-            render: renderMock,
-            getBadgeCount: (d) => d.count
+    function makeTabDef<T>(id: string, extra: Partial<{ label: string; render: (o: HTMLElement, d: T) => void; getBadgeCount: (d: T) => number; onActivate: () => Promise<T | null>; loadingText: string }> = {}) {
+        return {
+            id,
+            label: extra.label ?? id.toUpperCase(),
+            render: (extra.render ?? vi.fn()) as (o: HTMLElement, d: unknown) => void,
+            getBadgeCount: extra.getBadgeCount as ((d: unknown) => number) | undefined,
+            onActivate: extra.onActivate as (() => Promise<unknown>) | undefined,
+            loadingText: extra.loadingText
+        };
+    }
+
+    it('renders a tab bar with all tab labels + marks defaultTabId active', () => {
+        const ui = createTabbedUI({
+            title: 'X',
+            defaultTabId: 'trips',
+            tabs: [makeTabDef('trips', { label: 'Trips' }), makeTabDef('browse', { label: 'Browse' })]
         });
-
-        const overlay = ui.ensureOverlay();
-        const fakeData = { count: 7 };
-        ui.updateData(fakeData);
-
-        expect(renderMock).toHaveBeenCalled();
-        const lastCall = renderMock.mock.calls[renderMock.mock.calls.length - 1];
-        expect(lastCall[0]).toBe(overlay);
-        expect(lastCall[1]).toBe(fakeData);
+        ui.ensureOverlay();
+        const tabs = document.querySelectorAll<HTMLButtonElement>('.c1t-tab');
+        expect(tabs.length).toBe(2);
+        expect(tabs[0].textContent).toBe('Trips');
+        expect(tabs[1].textContent).toBe('Browse');
+        expect(tabs[0].classList.contains('active')).toBe(true);
+        expect(tabs[1].classList.contains('active')).toBe(false);
     });
 
-    it('updateFabState writes badge based on getBadgeCount return', () => {
-        const ui = createUI<{ count: number }>({
-            render: vi.fn(),
-            getBadgeCount: (d) => d.count
+    it('setActiveTab fires onActivate exactly once, caches result, and renders on second activation', async () => {
+        const renderTrips = vi.fn();
+        const loadTrips = vi.fn(async () => ({ n: 3 }));
+        const ui = createTabbedUI({
+            title: 'X',
+            defaultTabId: 'trips',
+            tabs: [
+                makeTabDef<{ n: number }>('trips', { render: renderTrips, onActivate: loadTrips }),
+                makeTabDef('browse')
+            ]
         });
-        ui.ensureStyles();
+        ui.ensureOverlay();
+
+        ui.setActiveTab('trips');
+        // Give the async chain a tick to complete
+        await new Promise((r) => setTimeout(r, 0));
+        await new Promise((r) => setTimeout(r, 0));
+
+        expect(loadTrips).toHaveBeenCalledTimes(1);
+        expect(renderTrips).toHaveBeenCalled();
+        expect(renderTrips.mock.calls[renderTrips.mock.calls.length - 1][1]).toEqual({ n: 3 });
+
+        // Activate away then back — loader should NOT re-fire; render SHOULD re-fire
+        ui.setActiveTab('browse');
+        await new Promise((r) => setTimeout(r, 0));
+        renderTrips.mockClear();
+        ui.setActiveTab('trips');
+        await new Promise((r) => setTimeout(r, 0));
+
+        expect(loadTrips).toHaveBeenCalledTimes(1);
+        expect(renderTrips).toHaveBeenCalledTimes(1);
+    });
+
+    it('setTabData warms cache and re-renders when the tab is currently active', () => {
+        const renderTrips = vi.fn();
+        const loadTrips = vi.fn(async () => ({ n: 0 }));
+        const ui = createTabbedUI({
+            title: 'X',
+            defaultTabId: 'trips',
+            tabs: [
+                makeTabDef<{ n: number }>('trips', { render: renderTrips, onActivate: loadTrips })
+            ]
+        });
+        ui.ensureOverlay();
+        // Interceptor path: bypass onActivate
+        ui.setTabData('trips', { n: 42 });
+        expect(loadTrips).not.toHaveBeenCalled();
+        expect(renderTrips).toHaveBeenCalled();
+        expect(renderTrips.mock.calls[0][1]).toEqual({ n: 42 });
+    });
+
+    it('badge comes from Trips tab getBadgeCount only when its data is present', () => {
+        const ui = createTabbedUI({
+            title: 'X',
+            defaultTabId: 'trips',
+            tabs: [
+                makeTabDef<{ withCredit: number }>('trips', { getBadgeCount: (d) => d.withCredit }),
+                makeTabDef<{ total: number }>('browse')
+            ]
+        });
         const fab = ui.ensureFab();
 
-        ui.updateData({ count: 0 });
-        expect(fab.classList.contains('has-data')).toBe(true);
-        expect(fab.innerHTML).toBe('📋'); // no badge when count===0
+        // No data yet → no badge, no has-data class
+        expect(fab.classList.contains('has-data')).toBe(false);
+        expect(fab.innerHTML).toBe('📋');
 
-        ui.updateData({ count: 12 });
+        // Trips data with count > 0 → badge appears
+        ui.setTabData('trips', { withCredit: 7 });
+        expect(fab.classList.contains('has-data')).toBe(true);
         expect(fab.innerHTML).toContain('class="badge"');
-        expect(fab.innerHTML).toContain('12');
+        expect(fab.innerHTML).toContain('7');
+
+        // Trips data with count === 0 → has-data but no badge
+        ui.setTabData('trips', { withCredit: 0 });
+        expect(fab.classList.contains('has-data')).toBe(true);
+        expect(fab.innerHTML).toBe('📋');
+    });
+
+    it('clicking a tab button in the overlay switches active tab', async () => {
+        const renderTrips = vi.fn();
+        const renderBrowse = vi.fn();
+        const ui = createTabbedUI({
+            title: 'X',
+            defaultTabId: 'trips',
+            tabs: [
+                makeTabDef('trips', { render: renderTrips }),
+                makeTabDef('browse', { render: renderBrowse })
+            ]
+        });
+        ui.ensureOverlay();
+        expect(ui.getActiveTabId()).toBe('trips');
+
+        const browseBtn = document.querySelector<HTMLButtonElement>('.c1t-tab[data-tab-id="browse"]');
+        expect(browseBtn).not.toBeNull();
+        browseBtn!.click();
+        await new Promise((r) => setTimeout(r, 0));
+
+        expect(ui.getActiveTabId()).toBe('browse');
+        expect(browseBtn!.classList.contains('active')).toBe(true);
     });
 });
 

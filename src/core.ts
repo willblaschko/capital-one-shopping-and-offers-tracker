@@ -9,8 +9,8 @@ import type {
     RawTrip,
     Trip,
     TripsData,
-    CreateUIOptions,
-    UIHandle,
+    CreateTabbedUIOptions,
+    TabbedUIHandle,
     RenderFn
 } from './types.js';
 
@@ -321,6 +321,34 @@ export const STYLES = `
     }
     #c1t-close:hover {
         background: rgba(255,255,255,0.3) !important;
+    }
+
+    #c1t-tabs {
+        display: flex !important;
+        gap: 4px !important;
+        padding: 0 20px !important;
+        border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+        flex-shrink: 0 !important;
+    }
+    .c1t-tab {
+        background: transparent !important;
+        border: none !important;
+        color: rgba(255,255,255,0.65) !important;
+        padding: 12px 18px !important;
+        cursor: pointer !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        font-family: inherit !important;
+        border-bottom: 2px solid transparent !important;
+        margin-bottom: -1px !important;
+        transition: color 0.15s, border-color 0.15s !important;
+    }
+    .c1t-tab:hover {
+        color: rgba(255,255,255,0.9) !important;
+    }
+    .c1t-tab.active {
+        color: white !important;
+        border-bottom-color: #69f0ae !important;
     }
 
     #c1t-stats {
@@ -656,7 +684,7 @@ export function getStatusClass(status: string | null | undefined): string {
 
 //=============================================================================
 // Trips renderer — extracted from the old inline `renderDataToModal`.
-// Signature matches RenderFn<TripsData> so it can be plugged into createUI.
+// Signature matches RenderFn<TripsData> so it can be plugged into a TabDef.
 //=============================================================================
 
 export const renderTripsToModal: RenderFn<TripsData> = (overlay, data) => {
@@ -779,24 +807,28 @@ export const renderTripsToModal: RenderFn<TripsData> = (overlay, data) => {
 // UI factory — generic over TData so the same skeleton powers trips & browse.
 //=============================================================================
 
-export function createUI<TData>(
-    options: CreateUIOptions<TData>
-): UIHandle<TData> {
-    const {
-        onOpen,
-        processedData: initialData,
-        render,
-        getBadgeCount,
-        title = 'Shopping Trips Tracker',
-        loadingText = 'Waiting for data... Navigate to Shopping Trips page and data will load automatically.'
-    } = options;
+export function createTabbedUI(options: CreateTabbedUIOptions): TabbedUIHandle {
+    const { title, tabs, defaultTabId } = options;
+
+    if (tabs.length === 0) throw new Error('createTabbedUI: tabs must be non-empty');
+    if (!tabs.find((t) => t.id === defaultTabId)) {
+        throw new Error(`createTabbedUI: defaultTabId "${defaultTabId}" not in tabs`);
+    }
+
+    // Per-tab data cache. Populated by onActivate (lazy) or setTabData (interceptor).
+    const dataByTab = new Map<string, unknown>();
+    // Per-tab in-flight promise so double-clicks don't fire multiple loaders.
+    const loadingByTab = new Map<string, Promise<void>>();
 
     let stylesInjected = false;
-    let currentData: TData | null | undefined = initialData;
+    let activeTabId = defaultTabId;
+
+    function findTab(id: string) {
+        return tabs.find((t) => t.id === id) ?? null;
+    }
 
     function ensureStyles(): void {
         if (stylesInjected && document.getElementById('c1t-styles')) return;
-
         let styleEl = document.getElementById('c1t-styles');
         if (!styleEl) {
             styleEl = document.createElement('style');
@@ -809,7 +841,6 @@ export function createUI<TData>(
 
     function ensureFab(): HTMLElement {
         ensureStyles();
-
         const existing = document.getElementById('c1t-fab');
         if (existing) return existing;
 
@@ -817,96 +848,151 @@ export function createUI<TData>(
         fab.id = 'c1t-fab';
         fab.innerHTML = '📋';
         fab.title = title;
-
-        fab.addEventListener('click', async () => {
+        fab.addEventListener('click', () => {
             const overlay = ensureOverlay();
             overlay.classList.add('open');
-
-            // If we don't have data, trigger fetch and wait for it
-            if (!currentData && onOpen) {
-                await onOpen();
-                // Re-render after data arrives
-                if (currentData) {
-                    render(overlay, currentData);
-                }
-            }
+            // Ensure the active tab renders (or begins loading) whenever we open.
+            void activateTab(activeTabId);
         });
-
         document.body.appendChild(fab);
-
-        if (currentData) {
-            updateFabState(fab, currentData);
-        }
-
+        refreshBadge();
         return fab;
     }
 
     function ensureOverlay(): HTMLElement {
         ensureStyles();
-
         let overlay = document.getElementById('c1t-overlay');
-        let isNew = false;
+        if (overlay) return overlay;
 
-        console.log(
-            '[C1 Tracker] ensureOverlay - existing:',
-            !!overlay,
-            'currentData:',
-            !!currentData
-        );
-
-        if (!overlay) {
-            isNew = true;
-            overlay = document.createElement('div');
-            overlay.id = 'c1t-overlay';
-            overlay.innerHTML = `
-                <div id="c1t-modal">
-                    <div id="c1t-header">
-                        <h2>📋 ${escapeHtml(title)}</h2>
-                        <button id="c1t-close">✕</button>
-                    </div>
-                    <div id="c1t-content">
-                        <div id="c1t-loading">${escapeHtml(loadingText)}</div>
-                    </div>
+        overlay = document.createElement('div');
+        overlay.id = 'c1t-overlay';
+        overlay.innerHTML = `
+            <div id="c1t-modal">
+                <div id="c1t-header">
+                    <h2>📋 ${escapeHtml(title)}</h2>
+                    <button id="c1t-close">✕</button>
                 </div>
-            `;
-            document.body.appendChild(overlay);
+                <div id="c1t-tabs">
+                    ${tabs
+                        .map(
+                            (t) =>
+                                `<button class="c1t-tab${t.id === activeTabId ? ' active' : ''}" data-tab-id="${escapeHtml(t.id)}">${escapeHtml(t.label)}</button>`
+                        )
+                        .join('')}
+                </div>
+                <div id="c1t-content"></div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
 
-            const overlayEl = overlay;
-            const closeBtn = overlayEl.querySelector('#c1t-close');
-            if (closeBtn) {
-                closeBtn.addEventListener('click', () =>
-                    overlayEl.classList.remove('open')
-                );
-            }
-            overlayEl.addEventListener('click', (e) => {
-                if (e.target === overlayEl) overlayEl.classList.remove('open');
+        const overlayEl = overlay;
+        overlayEl.querySelector('#c1t-close')?.addEventListener('click', () => {
+            overlayEl.classList.remove('open');
+        });
+        overlayEl.addEventListener('click', (e) => {
+            if (e.target === overlayEl) overlayEl.classList.remove('open');
+        });
+
+        overlayEl.querySelectorAll<HTMLButtonElement>('.c1t-tab').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const id = btn.dataset.tabId;
+                if (id) void activateTab(id);
             });
-        }
-
-        // Always render data if we have it (handles case where data arrived after overlay was created)
-        console.log(
-            '[C1 Tracker] ensureOverlay - isNew:',
-            isNew,
-            'currentData:',
-            !!currentData
-        );
-        if (currentData) {
-            render(overlay, currentData);
-        }
+        });
 
         return overlay;
     }
 
-    function updateFabState(fab: HTMLElement, data: TData): void {
-        if (!data) return;
+    async function activateTab(id: string): Promise<void> {
+        const tab = findTab(id);
+        if (!tab) return;
+        activeTabId = id;
 
-        fab.classList.add('has-data');
-        const count = getBadgeCount(data);
-        if (count > 0) {
-            fab.innerHTML = `📋<span class="badge">${count}</span>`;
-        } else {
-            fab.innerHTML = '📋';
+        const overlay = document.getElementById('c1t-overlay');
+        if (overlay) {
+            overlay.querySelectorAll<HTMLButtonElement>('.c1t-tab').forEach((btn) => {
+                btn.classList.toggle('active', btn.dataset.tabId === id);
+            });
         }
+
+        const content = overlay?.querySelector<HTMLElement>('#c1t-content');
+
+        // Already-cached data → render immediately.
+        if (dataByTab.has(id)) {
+            if (content) tab.render(overlay!, dataByTab.get(id));
+            return;
+        }
+
+        // No data + no loader → show placeholder and stop.
+        if (!tab.onActivate) {
+            if (content) {
+                content.innerHTML = `<div id="c1t-loading">${escapeHtml(tab.loadingText ?? 'No data.')}</div>`;
+            }
+            return;
+        }
+
+        // Coalesce concurrent activations of the same tab.
+        if (loadingByTab.has(id)) {
+            await loadingByTab.get(id);
+            return;
+        }
+
+        if (content) {
+            content.innerHTML = `<div id="c1t-loading">${escapeHtml(tab.loadingText ?? 'Loading…')}</div>`;
+        }
+
+        const loadPromise = (async () => {
+            try {
+                const data = await tab.onActivate!();
+                if (data != null) {
+                    setTabData(id, data);
+                }
+            } catch (e) {
+                console.error('[C1 Tracker] tab loader threw:', e);
+                const msg = e instanceof Error ? e.message : String(e);
+                const c = document.getElementById('c1t-content');
+                if (c && activeTabId === id) {
+                    c.innerHTML = `<div id="c1t-loading">Error loading data: ${escapeHtml(msg)}</div>`;
+                }
+            } finally {
+                loadingByTab.delete(id);
+            }
+        })();
+        loadingByTab.set(id, loadPromise);
+        await loadPromise;
+    }
+
+    function setActiveTab(id: string): void {
+        void activateTab(id);
+    }
+
+    function setTabData(id: string, data: unknown): void {
+        const tab = findTab(id);
+        if (!tab) return;
+        dataByTab.set(id, data);
+        refreshBadge();
+        // Re-render only if this tab is currently visible.
+        const overlay = document.getElementById('c1t-overlay');
+        if (overlay && activeTabId === id) {
+            tab.render(overlay, data);
+        }
+    }
+
+    function refreshBadge(): void {
+        const fab = document.getElementById('c1t-fab');
+        if (!fab) return;
+        let count = 0;
+        let hasAnyData = false;
+        for (const tab of tabs) {
+            if (!dataByTab.has(tab.id)) continue;
+            hasAnyData = true;
+            if (!tab.getBadgeCount) continue;
+            const n = tab.getBadgeCount(dataByTab.get(tab.id));
+            if (n > count) count = n;
+        }
+        if (hasAnyData) fab.classList.add('has-data');
+        else fab.classList.remove('has-data');
+        fab.innerHTML = count > 0 ? `📋<span class="badge">${count}</span>` : '📋';
     }
 
     // Escape key handler — module-level (not bound to a specific overlay).
@@ -921,14 +1007,8 @@ export function createUI<TData>(
         ensureStyles,
         ensureFab,
         ensureOverlay,
-        updateFabState,
-        updateData(data: TData) {
-            console.log('[C1 Tracker] updateData called');
-            currentData = data;
-            const fab = document.getElementById('c1t-fab');
-            if (fab) updateFabState(fab, data);
-            const overlay = document.getElementById('c1t-overlay');
-            if (overlay) render(overlay, data);
-        }
+        setActiveTab,
+        setTabData,
+        getActiveTabId: () => activeTabId
     };
 }

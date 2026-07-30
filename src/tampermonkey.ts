@@ -1,15 +1,16 @@
-// Tampermonkey userscript — persistent FAB across SPA navigation.
+// Tampermonkey userscript — persistent tabbed FAB across SPA navigation.
 //
-// Dual-mode: shows a trips FAB on trips pages, a browse FAB on browse pages.
-// Only one FAB visible at a time; both are created lazily and torn down when
-// detectMode() shifts.
+// One FAB per Cap One site (shopping or offers). The FAB opens a modal with
+// two tabs (Trips + Browse). Each tab lazy-loads its data on first activation
+// and caches for the session. The trips-API interceptor pre-warms the Trips
+// tab when the user happens to be on the trips page.
 //
 // The Tampermonkey header (// ==UserScript==) is prepended by scripts/build.js.
 // Do not include it here — esbuild would strip it and the build adds a fresh one.
 
 import {
     CONFIG,
-    createUI,
+    createTabbedUI,
     detectMode,
     fetchAllOffersTrips,
     getCurrentSite,
@@ -23,7 +24,7 @@ import {
     walkOffersFeed,
     walkShoppingFeed
 } from './browse.js';
-import type { BrowseData, Mode, TripsData } from './types.js';
+import type { BrowseData, TripsData } from './types.js';
 
 (function () {
     'use strict';
@@ -35,148 +36,102 @@ import type { BrowseData, Mode, TripsData } from './types.js';
     console.log('[C1 Tracker] Initialized on', currentSite, 'site');
 
     //-------------------------------------------------------------------------
-    // Trips state + UI
+    // Tab loaders — reused by the FAB (lazy on activate) and the interceptor
+    // fallback (when hasMore=true means the page only loaded a partial set).
     //-------------------------------------------------------------------------
 
-    let tripsProcessed: TripsData | null = null;
+    async function loadTrips(): Promise<TripsData> {
+        if (currentSite === 'shopping') {
+            const r = await fetch(CONFIG.shopping.trips.apiEndpoint, {
+                credentials: 'include'
+            });
+            if (!r.ok) throw new Error(`API returned ${r.status}`);
+            return processTripsData(await r.json());
+        }
+        // Offers: walk all pages via hasMore, not just the first 100.
+        return processTripsData(await fetchAllOffersTrips());
+    }
 
-    const tripsUI = createUI<TripsData>({
-        processedData: null,
-        onOpen: () => {
-            if (!tripsProcessed) void fetchTripsFallback();
-        },
-        render: renderTripsToModal,
-        getBadgeCount: (d) => d?.stats?.withCredit ?? 0
+    async function loadBrowse(): Promise<BrowseData> {
+        const onPage = (pages: number, total: number): void => {
+            const loading = document.querySelector('#c1t-loading');
+            if (loading) loading.textContent = `Loaded ${pages} pages, ${total} offers...`;
+        };
+        if (currentSite === 'shopping') {
+            const result = await walkShoppingFeed(onPage);
+            const data = processBrowseData(result.items);
+            data.stats.hitCap = result.hitCap;
+            data.stats.pagesWalked = result.pagesWalked;
+            return data;
+        }
+        const ctx = await fetchOffersBrowseContext();
+        if (!ctx) {
+            throw new Error(
+                'Could not capture offers feed context (userId + viewInstanceId). ' +
+                    'Open DevTools console for diagnostics.'
+            );
+        }
+        const result = await walkOffersFeed(ctx, onPage);
+        const data = processBrowseData(result.items);
+        data.stats.hitCap = result.hitCap;
+        data.stats.pagesWalked = result.pagesWalked;
+        return data;
+    }
+
+    //-------------------------------------------------------------------------
+    // Tabbed UI — single FAB, two tabs, default picked by current mode.
+    //-------------------------------------------------------------------------
+
+    const initialMode = detectMode();
+    const siteLabel = currentSite === 'offers' ? 'Cap One Offers' : 'Cap One Shopping';
+    const ui = createTabbedUI({
+        title: `${siteLabel} Tracker`,
+        defaultTabId: initialMode === 'browse' ? 'browse' : 'trips',
+        tabs: [
+            {
+                id: 'trips',
+                label: 'Trips',
+                render: renderTripsToModal as (o: HTMLElement, d: unknown) => void,
+                getBadgeCount: (d) => (d as TripsData)?.stats?.withCredit ?? 0,
+                onActivate: loadTrips as () => Promise<unknown>,
+                loadingText: 'Fetching shopping trips data...'
+            },
+            {
+                id: 'browse',
+                label: 'Browse',
+                render: renderBrowseToModal as (o: HTMLElement, d: unknown) => void,
+                onActivate: loadBrowse as () => Promise<unknown>,
+                loadingText: 'Walking offers feed... (0 pages)'
+            }
+        ]
     });
+
+    //-------------------------------------------------------------------------
+    // Trips API interception — pre-warms the Trips tab when the user is on the
+    // trips page and Cap One's SPA fires the request. Free warm cache.
+    //-------------------------------------------------------------------------
 
     function handleTripsApiData(data: unknown): void {
         // On offers, the API returns {data, hasMore}. If hasMore=true, the page
-        // only fetched the first slice — don't cache it as complete, or the FAB
-        // will show a truncated list. Fall through to fetchTripsFallback which
-        // walks every page.
+        // only fetched the first slice — skip caching so the FAB doesn't show
+        // a truncated list; the tab's onActivate will paginate fully.
         if (currentSite === 'offers') {
             const wrapped = data as { hasMore?: boolean } | null | undefined;
             if (wrapped && wrapped.hasMore === true) {
-                console.log('[C1 Tracker] Intercepted trips page 1 with hasMore=true; will paginate on open');
+                console.log('[C1 Tracker] Intercepted trips page 1 with hasMore=true; deferring to paginator');
                 return;
             }
         }
         console.log('[C1 Tracker] Captured trips API data');
-        tripsProcessed = processTripsData(data);
-        console.log('[C1 Tracker] Processed trips:', tripsProcessed.stats);
-        tripsUI.updateData(tripsProcessed);
+        const processed = processTripsData(data);
+        console.log('[C1 Tracker] Processed trips:', processed.stats);
+        ui.setTabData('trips', processed);
     }
-
-    async function fetchTripsFallback(): Promise<void> {
-        if (tripsProcessed) return;
-        console.log('[C1 Tracker] No intercepted trips data, fetching directly...');
-        try {
-            let data: unknown;
-            if (currentSite === 'shopping') {
-                const r = await fetch(CONFIG.shopping.trips.apiEndpoint, {
-                    credentials: 'include'
-                });
-                if (!r.ok) throw new Error(`API returned ${r.status}`);
-                data = await r.json();
-            } else {
-                // Offers: walk all pages via hasMore, not just the first 100.
-                data = await fetchAllOffersTrips();
-            }
-            handleTripsApiData(data);
-        } catch (e) {
-            console.error('[C1 Tracker] Trips fallback fetch failed:', e);
-        }
-    }
-
-    //-------------------------------------------------------------------------
-    // Browse state + UI
-    //-------------------------------------------------------------------------
-
-    let browseProcessed: BrowseData | null = null;
-    let browseWalking = false;
-
-    const browseUI = createUI<BrowseData>({
-        processedData: null,
-        onOpen: () => {
-            if (!browseProcessed && !browseWalking) void runBrowseWalk();
-        },
-        render: renderBrowseToModal,
-        getBadgeCount: (d) => d?.stats?.total ?? 0,
-        title: currentSite === 'offers' ? 'Browse Cap One Offers' : 'Browse Cap One Shopping',
-        loadingText: 'Loading offers feed...'
-    });
-
-    async function runBrowseWalk(): Promise<void> {
-        if (browseWalking) return;
-        browseWalking = true;
-
-        const setLoading = (msg: string): void => {
-            const loading = document.querySelector('#c1t-loading');
-            if (loading) {
-                loading.textContent = msg;
-                return;
-            }
-            const content = document.querySelector('#c1t-content');
-            if (content) {
-                content.innerHTML = `<div id="c1t-loading">${msg}</div>`;
-            }
-        };
-        setLoading('Walking offers feed... (0 pages)');
-
-        const onPage = (pages: number, total: number): void => {
-            setLoading(`Loaded ${pages} pages, ${total} offers...`);
-        };
-
-        try {
-            if (currentSite === 'shopping') {
-                const result = await walkShoppingFeed(onPage);
-                const data = processBrowseData(result.items);
-                data.stats.hitCap = result.hitCap;
-                data.stats.pagesWalked = result.pagesWalked;
-                browseProcessed = data;
-                browseUI.updateData(data);
-            } else {
-                const ctx = await fetchOffersBrowseContext();
-                if (!ctx) {
-                    setLoading(
-                        'Could not capture offers feed context (userId + viewInstanceId). ' +
-                        'Open DevTools console for diagnostics.'
-                    );
-                    return;
-                }
-                const result = await walkOffersFeed(ctx, onPage);
-                const data = processBrowseData(result.items);
-                data.stats.hitCap = result.hitCap;
-                data.stats.pagesWalked = result.pagesWalked;
-                browseProcessed = data;
-                browseUI.updateData(data);
-            }
-        } catch (e) {
-            console.error('[C1 Tracker] Browse walk failed:', e);
-            const msg = e instanceof Error ? e.message : String(e);
-            setLoading('Error walking feed: ' + msg);
-        } finally {
-            browseWalking = false;
-        }
-    }
-
-    //-------------------------------------------------------------------------
-    // API interception (trips only — browse runs actively from the FAB)
-    //-------------------------------------------------------------------------
 
     function isTripsAPI(url: string | null | undefined): boolean {
         if (!url) return false;
         return CONFIG[currentSite].trips.apiPattern(String(url));
     }
-
-    // We expose this for the test suite to assert pattern dispatch even though
-    // we don't use it in the runtime interceptor below.
-    function isBrowseAPI(url: string | null | undefined): boolean {
-        if (!url) return false;
-        return CONFIG[currentSite].browse.apiPattern(String(url));
-    }
-    // Touch reference so noUnusedLocals doesn't complain.
-    void isBrowseAPI;
 
     // Intercept fetch
     const originalFetch = window.fetch;
@@ -217,7 +172,6 @@ import type { BrowseData, Mode, TripsData } from './types.js';
         ...rest: unknown[]
     ): void {
         this._c1tUrl = typeof url === 'string' ? url : url.toString();
-        // Reuse the original signature via apply — rest typed loosely to satisfy DOM lib.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return (originalXHROpen as any).apply(this, [method, url, ...rest]);
     };
@@ -237,44 +191,19 @@ import type { BrowseData, Mode, TripsData } from './types.js';
     };
 
     //-------------------------------------------------------------------------
-    // Mode-aware FAB lifecycle — only one FAB visible at a time.
+    // Persistent FAB — no more mode teardown, just keep it alive on the page.
     //-------------------------------------------------------------------------
-
-    let lastMode: Mode | null | undefined = undefined;
-
-    function ensureFabForMode(mode: Mode | null): void {
-        // Tear down stale FAB if mode changed
-        if (lastMode !== mode) {
-            const stale = document.getElementById('c1t-fab');
-            if (stale) stale.remove();
-            const overlay = document.getElementById('c1t-overlay');
-            if (overlay) overlay.remove();
-            lastMode = mode;
-        }
-
-        if (mode === 'trips') {
-            tripsUI.ensureFab();
-        } else if (mode === 'browse') {
-            browseUI.ensureFab();
-        }
-        // null: no FAB
-    }
 
     function keepAlive(): void {
         if (!document.body) return;
-        ensureFabForMode(detectMode());
+        ui.ensureFab();
     }
 
     function initUI(): void {
         setInterval(keepAlive, 1000);
 
         const observer = new MutationObserver(() => {
-            const mode = detectMode();
-            if (mode && !document.getElementById('c1t-fab')) {
-                ensureFabForMode(mode);
-            } else if (lastMode !== mode) {
-                ensureFabForMode(mode);
-            }
+            if (!document.getElementById('c1t-fab')) ui.ensureFab();
         });
 
         if (document.body) {
@@ -298,5 +227,5 @@ import type { BrowseData, Mode, TripsData } from './types.js';
 
     window.addEventListener('load', initOnce);
 
-    console.log('[C1 Tracker] Script loaded — FAB will persist');
+    console.log('[C1 Tracker] Script loaded — tabbed FAB will persist');
 })();

@@ -6,6 +6,13 @@ View hidden trip data **and** browse every available offer with smart sorting on
 
 ## What's New
 
+**2026-07-31** — Tabbed modal + always-on FAB per site
+- One FAB per site now, always visible on any `capitaloneshopping.com` or `capitaloneoffers.com` URL. No more mode-switching between separate Trips and Browse FABs, no more "wrong page" gates. When Cap One shuffles page paths, we stop caring.
+- Opening the FAB shows a tabbed modal with **Trips** and **Browse**. Each tab lazy-loads on first activation and caches for the rest of the session (no re-fetching on tab switches).
+- The default active tab is picked from `detectMode()`: on a trips path → Trips tab; on the browse feed → Browse tab; on any other page → Trips tab (previously the FAB just wouldn't appear).
+- Trips XHR interceptor still warms the Trips tab passively when the user happens to be on the trips page. On offers, if the intercepted response has `hasMore: true`, we skip the partial cache and let the paginator fetch the full set.
+- Internally: `createUI<TData>` → `createTabbedUI` (tabs described declaratively; per-tab data cache and in-flight coalescing built in). Tampermonkey and bookmarklet-full both collapse from two-instance dispatch to one construction.
+
 **2026-07-30** — Track Cap One's offers-side refactor + real trips pagination
 - Cap One Offers moved the trips page: `/c1-offers/shopping-trips` → `/shopping-trips`. FAB detection and the loader gate both follow suit.
 - Trips XHR moved to `/xhr/shopping-trips` (from `/xhr/c1-offers/shopping-trips`) and now returns `{data, hasMore}` with a hard 100-per-page cap. We now actually paginate via `fetchAllOffersTrips()` (walks pages until `hasMore=false`, hard-capped at 50 pages / 5,000 trips as a safety net). No more silent 100-row truncation.
@@ -62,12 +69,15 @@ View hidden trip data **and** browse every available offer with smart sorting on
 
 ## Supported pages
 
-| URL | Mode |
-|-----|------|
+The FAB now appears on **any** URL of `capitaloneshopping.com` or `capitaloneoffers.com` and gives you both views via tabs. On the following canonical paths, the modal opens on the tab most relevant to the current page:
+
+| URL | Default tab |
+|-----|-------------|
 | `capitaloneshopping.com/account-settings/shopping-trips` | Trips |
 | `capitaloneoffers.com/shopping-trips` | Trips |
 | `capitaloneshopping.com/` (homepage) | Browse |
 | `capitaloneoffers.com/feed` | Browse |
+| any other page on either site | Trips |
 
 ## Status labels (trips view)
 

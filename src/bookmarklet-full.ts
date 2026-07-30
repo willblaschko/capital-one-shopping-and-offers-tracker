@@ -1,13 +1,11 @@
 // Full bookmarklet — loaded by the bookmarklet loader.
-// Dispatches on detectMode():
-//   - 'trips':  direct-fetch the trips API and render via renderTripsToModal
-//   - 'browse': walk the catalog feed (shopping POST /api/v1/feed, offers GET /feed/{userId})
-//               and render via renderBrowseToModal
-//   - null:     alert telling user to navigate to a supported page
+// Constructs a single tabbed FAB (Trips + Browse) for whichever Cap One site
+// we're on. Both tabs lazy-load on activation; the default active tab is
+// picked from detectMode() when we're on a canonical path.
 
 import {
     CONFIG,
-    createUI,
+    createTabbedUI,
     detectMode,
     fetchAllOffersTrips,
     getCurrentSite,
@@ -33,191 +31,82 @@ import type { BrowseData, TripsData } from './types.js';
     }
 
     const mode = detectMode();
+    const defaultTabId = mode === 'browse' ? 'browse' : 'trips';
 
-    if (mode === null) {
-        const trips = CONFIG[currentSite].pages.trips;
-        const browse = CONFIG[currentSite].pages.browse;
-        alert(
-            'Please navigate to a Capital One Shopping Trips or browse page:\n' +
-                `${window.location.origin}${trips}\n` +
-                `${window.location.origin}${browse}`
-        );
+    // If a FAB from an earlier click already exists, just re-open the modal.
+    // The tabbed UI persists tab state across close/open, so nothing to tear
+    // down like the old mode-aware version had to.
+    if (document.getElementById('c1t-fab')) {
+        document.getElementById('c1t-overlay')?.classList.add('open');
         return;
     }
 
-    // If already loaded, check whether the existing FAB matches the current
-    // mode. Cap One's SPA navigation leaves our DOM in place, so a FAB created
-    // on /feed (browse) would otherwise re-open with stale browse content on a
-    // trips page (or vice versa).
-    const existingFab = document.getElementById('c1t-fab');
-    if (existingFab) {
-        if (existingFab.dataset.c1tMode === mode) {
-            const overlay = document.getElementById('c1t-overlay');
-            if (overlay) overlay.classList.add('open');
-            return;
+    console.log('[C1 Tracker Bookmarklet] Running on', currentSite, 'defaultTab=', defaultTabId);
+
+    async function loadTrips(): Promise<TripsData> {
+        if (currentSite === 'shopping') {
+            const response = await fetch(CONFIG.shopping.trips.apiEndpoint, {
+                credentials: 'include'
+            });
+            if (!response.ok) throw new Error(`API returned ${response.status}`);
+            return processTripsData(await response.json());
         }
-        // Mode mismatch — tear down and re-run from scratch
-        existingFab.remove();
-        document.getElementById('c1t-overlay')?.remove();
+        // Offers: walk all pages via hasMore, not just the first 100.
+        return processTripsData(await fetchAllOffersTrips());
     }
 
-    console.log('[C1 Tracker Bookmarklet] Running on', currentSite, 'mode=', mode);
-
-    if (mode === 'trips') {
-        runTripsMode(currentSite);
-    } else {
-        runBrowseMode(currentSite);
-    }
-
-    // Tag the freshly-created FAB with its mode so the next bookmarklet click
-    // after a navigation can detect mismatches.
-    const newFab = document.getElementById('c1t-fab');
-    if (newFab) newFab.dataset.c1tMode = mode;
-})();
-
-//=============================================================================
-// Trips mode
-//=============================================================================
-
-function runTripsMode(currentSite: 'shopping' | 'offers'): void {
-    let processedData: TripsData | null = null;
-
-    const ui = createUI<TripsData>({
-        processedData: null,
-        onOpen: () => {
-            if (!processedData) {
-                void fetchTripsData();
-            }
-        },
-        render: renderTripsToModal,
-        getBadgeCount: (d) => d?.stats?.withCredit ?? 0
-    });
-
-    ui.ensureFab();
-    ui.ensureOverlay();
-
-    // Open modal immediately
-    const overlay = document.getElementById('c1t-overlay');
-    if (overlay) overlay.classList.add('open');
-
-    async function fetchTripsData(): Promise<void> {
-        const content = document.querySelector('#c1t-content');
-        if (content) {
-            content.innerHTML = '<div id="c1t-loading">Fetching shopping trips data...</div>';
+    async function loadBrowse(): Promise<BrowseData> {
+        const onPage = (pages: number, total: number): void => {
+            const loading = document.querySelector('#c1t-loading');
+            if (loading) loading.textContent = `Loaded ${pages} pages, ${total} offers...`;
+        };
+        if (currentSite === 'shopping') {
+            const result = await walkShoppingFeed(onPage);
+            const data = processBrowseData(result.items);
+            data.stats.hitCap = result.hitCap;
+            data.stats.pagesWalked = result.pagesWalked;
+            return data;
         }
-
-        try {
-            let data: unknown;
-            if (currentSite === 'shopping') {
-                const response = await fetch(CONFIG.shopping.trips.apiEndpoint, {
-                    credentials: 'include'
-                });
-                if (!response.ok) throw new Error(`API returned ${response.status}`);
-                data = await response.json();
-            } else {
-                // Offers: walk all pages via hasMore, not just the first 100.
-                data = await fetchAllOffersTrips();
-            }
-
-            console.log('[C1 Tracker Bookmarklet] Fetched trips data');
-            processedData = processTripsData(data);
-            console.log('[C1 Tracker Bookmarklet] Processed:', processedData.stats);
-            ui.updateData(processedData);
-        } catch (error) {
-            console.error('[C1 Tracker Bookmarklet] Trips error:', error);
-            const msg = error instanceof Error ? error.message : String(error);
-            if (content) {
-                content.innerHTML = `
-                    <div id="c1t-loading">
-                        <p>Error fetching data: ${msg}</p>
-                        <p style="margin-top: 10px; font-size: 12px; opacity: 0.8;">
-                            Make sure you're logged in and try navigating to the Shopping Trips page first.
-                        </p>
-                    </div>
-                `;
-            }
+        const ctx = await fetchOffersBrowseContext();
+        if (!ctx) {
+            throw new Error(
+                'Could not capture offers feed context (userId + viewInstanceId). ' +
+                    'Open DevTools console for diagnostics. The URL should look like ' +
+                    '/feed/<userId>?viewInstanceId=<uuid>. Try clicking into the feed grid once, then re-run.'
+            );
         }
-    }
-
-    // Kick off fetch immediately
-    void fetchTripsData();
-}
-
-//=============================================================================
-// Browse mode
-//=============================================================================
-
-function runBrowseMode(currentSite: 'shopping' | 'offers'): void {
-    const ui = createUI<BrowseData>({
-        processedData: null,
-        render: renderBrowseToModal,
-        getBadgeCount: (d) => d?.stats?.total ?? 0,
-        title: currentSite === 'offers' ? 'Browse Cap One Offers' : 'Browse Cap One Shopping',
-        loadingText: 'Loading offers feed...'
-    });
-
-    ui.ensureFab();
-    ui.ensureOverlay();
-
-    const overlay = document.getElementById('c1t-overlay');
-    if (overlay) overlay.classList.add('open');
-
-    const setLoading = (msg: string): void => {
-        const loading = document.querySelector('#c1t-loading');
-        if (loading) {
-            loading.textContent = msg;
-            return;
-        }
-        // Replace whole content if the loading div is gone (e.g. already rendered)
-        const content = document.querySelector('#c1t-content');
-        if (content) {
-            content.innerHTML = `<div id="c1t-loading">${msg}</div>`;
-        }
-    };
-
-    setLoading('Walking offers feed... (0 pages)');
-
-    void runBrowseWalk(currentSite, setLoading)
-        .then((data) => {
-            if (data) ui.updateData(data);
-        })
-        .catch((err) => {
-            console.error('[C1 Tracker Bookmarklet] Browse error:', err);
-            const msg = err instanceof Error ? err.message : String(err);
-            setLoading('Error walking feed: ' + msg);
-        });
-}
-
-async function runBrowseWalk(
-    currentSite: 'shopping' | 'offers',
-    setLoading: (msg: string) => void
-): Promise<BrowseData | null> {
-    const onPage = (pages: number, total: number): void => {
-        setLoading(`Loaded ${pages} pages, ${total} offers...`);
-    };
-
-    if (currentSite === 'shopping') {
-        const result = await walkShoppingFeed(onPage);
+        const result = await walkOffersFeed(ctx, onPage);
         const data = processBrowseData(result.items);
         data.stats.hitCap = result.hitCap;
         data.stats.pagesWalked = result.pagesWalked;
         return data;
     }
 
-    // Offers — need context first (userId + viewInstanceId)
-    const ctx = await fetchOffersBrowseContext();
-    if (!ctx) {
-        setLoading(
-            'Could not capture offers feed context (userId + viewInstanceId). ' +
-            'Open DevTools console for diagnostics. The URL should look like ' +
-            '/feed/<userId>?viewInstanceId=<uuid>. Try clicking into the feed grid once, then re-run.'
-        );
-        return null;
-    }
+    const siteLabel = currentSite === 'offers' ? 'Cap One Offers' : 'Cap One Shopping';
+    const ui = createTabbedUI({
+        title: `${siteLabel} Tracker`,
+        defaultTabId,
+        tabs: [
+            {
+                id: 'trips',
+                label: 'Trips',
+                render: renderTripsToModal as (o: HTMLElement, d: unknown) => void,
+                getBadgeCount: (d) => (d as TripsData)?.stats?.withCredit ?? 0,
+                onActivate: loadTrips as () => Promise<unknown>,
+                loadingText: 'Fetching shopping trips data...'
+            },
+            {
+                id: 'browse',
+                label: 'Browse',
+                render: renderBrowseToModal as (o: HTMLElement, d: unknown) => void,
+                onActivate: loadBrowse as () => Promise<unknown>,
+                loadingText: 'Walking offers feed... (0 pages)'
+            }
+        ]
+    });
 
-    const result = await walkOffersFeed(ctx, onPage);
-    const data = processBrowseData(result.items);
-    data.stats.hitCap = result.hitCap;
-    data.stats.pagesWalked = result.pagesWalked;
-    return data;
-}
+    ui.ensureFab();
+    ui.ensureOverlay();
+    document.getElementById('c1t-overlay')?.classList.add('open');
+    ui.setActiveTab(defaultTabId);
+})();

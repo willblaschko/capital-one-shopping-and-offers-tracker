@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.0.3
+// @version      3.1.0
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*
@@ -253,6 +253,34 @@
     }
     #c1t-close:hover {
         background: rgba(255,255,255,0.3) !important;
+    }
+
+    #c1t-tabs {
+        display: flex !important;
+        gap: 4px !important;
+        padding: 0 20px !important;
+        border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+        flex-shrink: 0 !important;
+    }
+    .c1t-tab {
+        background: transparent !important;
+        border: none !important;
+        color: rgba(255,255,255,0.65) !important;
+        padding: 12px 18px !important;
+        cursor: pointer !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        font-family: inherit !important;
+        border-bottom: 2px solid transparent !important;
+        margin-bottom: -1px !important;
+        transition: color 0.15s, border-color 0.15s !important;
+    }
+    .c1t-tab:hover {
+        color: rgba(255,255,255,0.9) !important;
+    }
+    .c1t-tab.active {
+        color: white !important;
+        border-bottom-color: #69f0ae !important;
     }
 
     #c1t-stats {
@@ -671,17 +699,19 @@
       });
     });
   };
-  function createUI(options) {
-    const {
-      onOpen,
-      processedData: initialData,
-      render,
-      getBadgeCount,
-      title = "Shopping Trips Tracker",
-      loadingText = "Waiting for data... Navigate to Shopping Trips page and data will load automatically."
-    } = options;
+  function createTabbedUI(options) {
+    const { title, tabs, defaultTabId } = options;
+    if (tabs.length === 0) throw new Error("createTabbedUI: tabs must be non-empty");
+    if (!tabs.find((t) => t.id === defaultTabId)) {
+      throw new Error(`createTabbedUI: defaultTabId "${defaultTabId}" not in tabs`);
+    }
+    const dataByTab = /* @__PURE__ */ new Map();
+    const loadingByTab = /* @__PURE__ */ new Map();
     let stylesInjected = false;
-    let currentData = initialData;
+    let activeTabId = defaultTabId;
+    function findTab(id) {
+      return tabs.find((t) => t.id === id) ?? null;
+    }
     function ensureStyles() {
       if (stylesInjected && document.getElementById("c1t-styles")) return;
       let styleEl = document.getElementById("c1t-styles");
@@ -701,80 +731,127 @@
       fab.id = "c1t-fab";
       fab.innerHTML = "\u{1F4CB}";
       fab.title = title;
-      fab.addEventListener("click", async () => {
+      fab.addEventListener("click", () => {
         const overlay = ensureOverlay();
         overlay.classList.add("open");
-        if (!currentData && onOpen) {
-          await onOpen();
-          if (currentData) {
-            render(overlay, currentData);
-          }
-        }
+        void activateTab(activeTabId);
       });
       document.body.appendChild(fab);
-      if (currentData) {
-        updateFabState(fab, currentData);
-      }
+      refreshBadge();
       return fab;
     }
     function ensureOverlay() {
       ensureStyles();
       let overlay = document.getElementById("c1t-overlay");
-      let isNew = false;
-      console.log(
-        "[C1 Tracker] ensureOverlay - existing:",
-        !!overlay,
-        "currentData:",
-        !!currentData
-      );
-      if (!overlay) {
-        isNew = true;
-        overlay = document.createElement("div");
-        overlay.id = "c1t-overlay";
-        overlay.innerHTML = `
-                <div id="c1t-modal">
-                    <div id="c1t-header">
-                        <h2>\u{1F4CB} ${escapeHtml(title)}</h2>
-                        <button id="c1t-close">\u2715</button>
-                    </div>
-                    <div id="c1t-content">
-                        <div id="c1t-loading">${escapeHtml(loadingText)}</div>
-                    </div>
+      if (overlay) return overlay;
+      overlay = document.createElement("div");
+      overlay.id = "c1t-overlay";
+      overlay.innerHTML = `
+            <div id="c1t-modal">
+                <div id="c1t-header">
+                    <h2>\u{1F4CB} ${escapeHtml(title)}</h2>
+                    <button id="c1t-close">\u2715</button>
                 </div>
-            `;
-        document.body.appendChild(overlay);
-        const overlayEl = overlay;
-        const closeBtn = overlayEl.querySelector("#c1t-close");
-        if (closeBtn) {
-          closeBtn.addEventListener(
-            "click",
-            () => overlayEl.classList.remove("open")
-          );
-        }
-        overlayEl.addEventListener("click", (e) => {
-          if (e.target === overlayEl) overlayEl.classList.remove("open");
+                <div id="c1t-tabs">
+                    ${tabs.map(
+        (t) => `<button class="c1t-tab${t.id === activeTabId ? " active" : ""}" data-tab-id="${escapeHtml(t.id)}">${escapeHtml(t.label)}</button>`
+      ).join("")}
+                </div>
+                <div id="c1t-content"></div>
+            </div>
+        `;
+      document.body.appendChild(overlay);
+      const overlayEl = overlay;
+      overlayEl.querySelector("#c1t-close")?.addEventListener("click", () => {
+        overlayEl.classList.remove("open");
+      });
+      overlayEl.addEventListener("click", (e) => {
+        if (e.target === overlayEl) overlayEl.classList.remove("open");
+      });
+      overlayEl.querySelectorAll(".c1t-tab").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const id = btn.dataset.tabId;
+          if (id) void activateTab(id);
         });
-      }
-      console.log(
-        "[C1 Tracker] ensureOverlay - isNew:",
-        isNew,
-        "currentData:",
-        !!currentData
-      );
-      if (currentData) {
-        render(overlay, currentData);
-      }
+      });
       return overlay;
     }
-    function updateFabState(fab, data) {
-      if (!data) return;
-      fab.classList.add("has-data");
-      const count = getBadgeCount(data);
-      if (count > 0) {
-        fab.innerHTML = `\u{1F4CB}<span class="badge">${count}</span>`;
-      } else {
-        fab.innerHTML = "\u{1F4CB}";
+    async function activateTab(id) {
+      const tab = findTab(id);
+      if (!tab) return;
+      activeTabId = id;
+      const overlay = document.getElementById("c1t-overlay");
+      if (overlay) {
+        overlay.querySelectorAll(".c1t-tab").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.tabId === id);
+        });
       }
+      const content = overlay?.querySelector("#c1t-content");
+      if (dataByTab.has(id)) {
+        if (content) tab.render(overlay, dataByTab.get(id));
+        return;
+      }
+      if (!tab.onActivate) {
+        if (content) {
+          content.innerHTML = `<div id="c1t-loading">${escapeHtml(tab.loadingText ?? "No data.")}</div>`;
+        }
+        return;
+      }
+      if (loadingByTab.has(id)) {
+        await loadingByTab.get(id);
+        return;
+      }
+      if (content) {
+        content.innerHTML = `<div id="c1t-loading">${escapeHtml(tab.loadingText ?? "Loading\u2026")}</div>`;
+      }
+      const loadPromise = (async () => {
+        try {
+          const data = await tab.onActivate();
+          if (data != null) {
+            setTabData(id, data);
+          }
+        } catch (e) {
+          console.error("[C1 Tracker] tab loader threw:", e);
+          const msg = e instanceof Error ? e.message : String(e);
+          const c = document.getElementById("c1t-content");
+          if (c && activeTabId === id) {
+            c.innerHTML = `<div id="c1t-loading">Error loading data: ${escapeHtml(msg)}</div>`;
+          }
+        } finally {
+          loadingByTab.delete(id);
+        }
+      })();
+      loadingByTab.set(id, loadPromise);
+      await loadPromise;
+    }
+    function setActiveTab(id) {
+      void activateTab(id);
+    }
+    function setTabData(id, data) {
+      const tab = findTab(id);
+      if (!tab) return;
+      dataByTab.set(id, data);
+      refreshBadge();
+      const overlay = document.getElementById("c1t-overlay");
+      if (overlay && activeTabId === id) {
+        tab.render(overlay, data);
+      }
+    }
+    function refreshBadge() {
+      const fab = document.getElementById("c1t-fab");
+      if (!fab) return;
+      let count = 0;
+      let hasAnyData = false;
+      for (const tab of tabs) {
+        if (!dataByTab.has(tab.id)) continue;
+        hasAnyData = true;
+        if (!tab.getBadgeCount) continue;
+        const n = tab.getBadgeCount(dataByTab.get(tab.id));
+        if (n > count) count = n;
+      }
+      if (hasAnyData) fab.classList.add("has-data");
+      else fab.classList.remove("has-data");
+      fab.innerHTML = count > 0 ? `\u{1F4CB}<span class="badge">${count}</span>` : "\u{1F4CB}";
     }
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
@@ -786,15 +863,9 @@
       ensureStyles,
       ensureFab,
       ensureOverlay,
-      updateFabState,
-      updateData(data) {
-        console.log("[C1 Tracker] updateData called");
-        currentData = data;
-        const fab = document.getElementById("c1t-fab");
-        if (fab) updateFabState(fab, data);
-        const overlay = document.getElementById("c1t-overlay");
-        if (overlay) render(overlay, data);
-      }
+      setActiveTab,
+      setTabData,
+      getActiveTabId: () => activeTabId
     };
   }
 
@@ -1513,115 +1584,79 @@
     if (!maybeSite) return;
     const currentSite = maybeSite;
     console.log("[C1 Tracker] Initialized on", currentSite, "site");
-    let tripsProcessed = null;
-    const tripsUI = createUI({
-      processedData: null,
-      onOpen: () => {
-        if (!tripsProcessed) void fetchTripsFallback();
-      },
-      render: renderTripsToModal,
-      getBadgeCount: (d) => d?.stats?.withCredit ?? 0
+    async function loadTrips() {
+      if (currentSite === "shopping") {
+        const r = await fetch(CONFIG.shopping.trips.apiEndpoint, {
+          credentials: "include"
+        });
+        if (!r.ok) throw new Error(`API returned ${r.status}`);
+        return processTripsData(await r.json());
+      }
+      return processTripsData(await fetchAllOffersTrips());
+    }
+    async function loadBrowse() {
+      const onPage = (pages, total) => {
+        const loading = document.querySelector("#c1t-loading");
+        if (loading) loading.textContent = `Loaded ${pages} pages, ${total} offers...`;
+      };
+      if (currentSite === "shopping") {
+        const result2 = await walkShoppingFeed(onPage);
+        const data2 = processBrowseData(result2.items);
+        data2.stats.hitCap = result2.hitCap;
+        data2.stats.pagesWalked = result2.pagesWalked;
+        return data2;
+      }
+      const ctx = await fetchOffersBrowseContext();
+      if (!ctx) {
+        throw new Error(
+          "Could not capture offers feed context (userId + viewInstanceId). Open DevTools console for diagnostics."
+        );
+      }
+      const result = await walkOffersFeed(ctx, onPage);
+      const data = processBrowseData(result.items);
+      data.stats.hitCap = result.hitCap;
+      data.stats.pagesWalked = result.pagesWalked;
+      return data;
+    }
+    const initialMode = detectMode();
+    const siteLabel = currentSite === "offers" ? "Cap One Offers" : "Cap One Shopping";
+    const ui = createTabbedUI({
+      title: `${siteLabel} Tracker`,
+      defaultTabId: initialMode === "browse" ? "browse" : "trips",
+      tabs: [
+        {
+          id: "trips",
+          label: "Trips",
+          render: renderTripsToModal,
+          getBadgeCount: (d) => d?.stats?.withCredit ?? 0,
+          onActivate: loadTrips,
+          loadingText: "Fetching shopping trips data..."
+        },
+        {
+          id: "browse",
+          label: "Browse",
+          render: renderBrowseToModal,
+          onActivate: loadBrowse,
+          loadingText: "Walking offers feed... (0 pages)"
+        }
+      ]
     });
     function handleTripsApiData(data) {
       if (currentSite === "offers") {
         const wrapped = data;
         if (wrapped && wrapped.hasMore === true) {
-          console.log("[C1 Tracker] Intercepted trips page 1 with hasMore=true; will paginate on open");
+          console.log("[C1 Tracker] Intercepted trips page 1 with hasMore=true; deferring to paginator");
           return;
         }
       }
       console.log("[C1 Tracker] Captured trips API data");
-      tripsProcessed = processTripsData(data);
-      console.log("[C1 Tracker] Processed trips:", tripsProcessed.stats);
-      tripsUI.updateData(tripsProcessed);
-    }
-    async function fetchTripsFallback() {
-      if (tripsProcessed) return;
-      console.log("[C1 Tracker] No intercepted trips data, fetching directly...");
-      try {
-        let data;
-        if (currentSite === "shopping") {
-          const r = await fetch(CONFIG.shopping.trips.apiEndpoint, {
-            credentials: "include"
-          });
-          if (!r.ok) throw new Error(`API returned ${r.status}`);
-          data = await r.json();
-        } else {
-          data = await fetchAllOffersTrips();
-        }
-        handleTripsApiData(data);
-      } catch (e) {
-        console.error("[C1 Tracker] Trips fallback fetch failed:", e);
-      }
-    }
-    let browseProcessed = null;
-    let browseWalking = false;
-    const browseUI = createUI({
-      processedData: null,
-      onOpen: () => {
-        if (!browseProcessed && !browseWalking) void runBrowseWalk();
-      },
-      render: renderBrowseToModal,
-      getBadgeCount: (d) => d?.stats?.total ?? 0,
-      title: currentSite === "offers" ? "Browse Cap One Offers" : "Browse Cap One Shopping",
-      loadingText: "Loading offers feed..."
-    });
-    async function runBrowseWalk() {
-      if (browseWalking) return;
-      browseWalking = true;
-      const setLoading = (msg) => {
-        const loading = document.querySelector("#c1t-loading");
-        if (loading) {
-          loading.textContent = msg;
-          return;
-        }
-        const content = document.querySelector("#c1t-content");
-        if (content) {
-          content.innerHTML = `<div id="c1t-loading">${msg}</div>`;
-        }
-      };
-      setLoading("Walking offers feed... (0 pages)");
-      const onPage = (pages, total) => {
-        setLoading(`Loaded ${pages} pages, ${total} offers...`);
-      };
-      try {
-        if (currentSite === "shopping") {
-          const result = await walkShoppingFeed(onPage);
-          const data = processBrowseData(result.items);
-          data.stats.hitCap = result.hitCap;
-          data.stats.pagesWalked = result.pagesWalked;
-          browseProcessed = data;
-          browseUI.updateData(data);
-        } else {
-          const ctx = await fetchOffersBrowseContext();
-          if (!ctx) {
-            setLoading(
-              "Could not capture offers feed context (userId + viewInstanceId). Open DevTools console for diagnostics."
-            );
-            return;
-          }
-          const result = await walkOffersFeed(ctx, onPage);
-          const data = processBrowseData(result.items);
-          data.stats.hitCap = result.hitCap;
-          data.stats.pagesWalked = result.pagesWalked;
-          browseProcessed = data;
-          browseUI.updateData(data);
-        }
-      } catch (e) {
-        console.error("[C1 Tracker] Browse walk failed:", e);
-        const msg = e instanceof Error ? e.message : String(e);
-        setLoading("Error walking feed: " + msg);
-      } finally {
-        browseWalking = false;
-      }
+      const processed = processTripsData(data);
+      console.log("[C1 Tracker] Processed trips:", processed.stats);
+      ui.setTabData("trips", processed);
     }
     function isTripsAPI(url) {
       if (!url) return false;
       return CONFIG[currentSite].trips.apiPattern(String(url));
-    }
-    function isBrowseAPI(url) {
-      if (!url) return false;
-      return CONFIG[currentSite].browse.apiPattern(String(url));
     }
     const originalFetch = window.fetch;
     window.fetch = async function(...args) {
@@ -1664,34 +1699,14 @@
       });
       return originalXHRSend.apply(this, args);
     };
-    let lastMode = void 0;
-    function ensureFabForMode(mode) {
-      if (lastMode !== mode) {
-        const stale = document.getElementById("c1t-fab");
-        if (stale) stale.remove();
-        const overlay = document.getElementById("c1t-overlay");
-        if (overlay) overlay.remove();
-        lastMode = mode;
-      }
-      if (mode === "trips") {
-        tripsUI.ensureFab();
-      } else if (mode === "browse") {
-        browseUI.ensureFab();
-      }
-    }
     function keepAlive() {
       if (!document.body) return;
-      ensureFabForMode(detectMode());
+      ui.ensureFab();
     }
     function initUI() {
       setInterval(keepAlive, 1e3);
       const observer = new MutationObserver(() => {
-        const mode = detectMode();
-        if (mode && !document.getElementById("c1t-fab")) {
-          ensureFabForMode(mode);
-        } else if (lastMode !== mode) {
-          ensureFabForMode(mode);
-        }
+        if (!document.getElementById("c1t-fab")) ui.ensureFab();
       });
       if (document.body) {
         observer.observe(document.body, { childList: true, subtree: true });
@@ -1710,6 +1725,6 @@
       initOnce();
     }
     window.addEventListener("load", initOnce);
-    console.log("[C1 Tracker] Script loaded \u2014 FAB will persist");
+    console.log("[C1 Tracker] Script loaded \u2014 tabbed FAB will persist");
   })();
 })();
