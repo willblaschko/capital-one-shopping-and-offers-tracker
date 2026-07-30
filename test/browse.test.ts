@@ -903,9 +903,10 @@ describe('getOffersBrowseContext', () => {
         window.location.href = 'https://capitaloneoffers.com/feed?viewInstanceId=VI_FROM_URL';
 
         const script = document.createElement('script');
-        // Mimic the streamController.enqueue(...) payload Cap One ships in HTML.
+        // Mimic Cap One's actual streamed payload: it's a JSON-in-JS-string, so
+        // quotes around each field are backslash-escaped in the raw script text.
         script.textContent =
-            'window.__reactRouterContext.streamController.enqueue("[..."viewInstanceId","VI_FROM_STREAM","contentSlug","ease-web-l1","arids",[46,47],"maybeSelectedArid","TJfjNqXyHfUR6LOXOM5JO+1986oAIJkyINGe4MgiUAI=",..."]\\n");';
+            'window.__reactRouterContext.streamController.enqueue("[\\"contentSlug\\",\\"ease-web-l1\\",\\"arids\\",[46,47],\\"maybeSelectedArid\\",\\"TJfjNqXyHfUR6LOXOM5JO+1986oAIJkyINGe4MgiUAI=\\",\\"other\\",\\"x\\"]");';
         document.body.appendChild(script);
 
         const c = getOffersBrowseContext();
@@ -913,6 +914,23 @@ describe('getOffersBrowseContext', () => {
         // URL query wins for viewInstanceId; userId comes from the RR stream.
         expect(c!.userId).toBe('TJfjNqXyHfUR6LOXOM5JO+1986oAIJkyINGe4MgiUAI=');
         expect(c!.viewInstanceId).toBe('VI_FROM_URL');
+        window.location.href = original;
+    });
+
+    it('reads viewInstanceId + userId from RR stream when both are backslash-escaped', () => {
+        const original = window.location.href;
+        // No URL query, no path userId — force reliance on the stream scrape.
+        window.location.href = 'https://capitaloneoffers.com/feed';
+
+        const script = document.createElement('script');
+        script.textContent =
+            'window.__reactRouterContext.streamController.enqueue("[\\"viewInstanceId\\",\\"VI_FROM_STREAM\\",\\"maybeSelectedArid\\",\\"ARID_FROM_STREAM\\"]");';
+        document.body.appendChild(script);
+
+        const c = getOffersBrowseContext();
+        expect(c).not.toBeNull();
+        expect(c!.userId).toBe('ARID_FROM_STREAM');
+        expect(c!.viewInstanceId).toBe('VI_FROM_STREAM');
         window.location.href = original;
     });
 

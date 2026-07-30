@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.0.1
+// @version      3.0.3
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*
@@ -20,10 +20,11 @@
   var CONFIG = {
     offers: {
       hostname: "capitaloneoffers",
-      pages: { trips: "/c1-offers/shopping-trips", browse: "/feed" },
+      pages: { trips: "/shopping-trips", browse: "/feed" },
       trips: {
-        apiPattern: (url) => url.includes("/xhr/c1-offers/shopping-trips"),
-        apiEndpoint: "/xhr/c1-offers/shopping-trips?limit=300&offset=0"
+        apiPattern: (url) => url.includes("/xhr/shopping-trips"),
+        // First-page endpoint. For the full paginated set, use fetchAllOffersTrips().
+        apiEndpoint: "/xhr/shopping-trips?limit=100&offset=0&status[]=Adjusted&status[]=Completed&status[]=Ineligible&status[]=Pending"
       },
       browse: {
         apiPattern: (url) => url.includes("/feed/") && url.includes("viewInstanceId=")
@@ -77,7 +78,7 @@
     const hasCreditAmount = creditAmount !== null && Number(creditAmount) > 0;
     let rawStatus = raw.status ?? "Unknown";
     if (rawStatus === "Waiting") rawStatus = "Created";
-    else if (rawStatus === "Inactive") rawStatus = "Canceled";
+    else if (rawStatus === "Inactive" || rawStatus === "Ineligible") rawStatus = "Canceled";
     let displayStatus = rawStatus;
     if (hasCreditAmount && rawStatus.toLowerCase() === "canceled") {
       displayStatus = "Completed";
@@ -117,6 +118,22 @@
         created: trips.filter((t) => t.status.toLowerCase() === "created").length
       }
     };
+  }
+  var OFFERS_TRIPS_PAGE_SIZE = 100;
+  var OFFERS_TRIPS_MAX_PAGES = 50;
+  var OFFERS_TRIPS_BASE = "/xhr/shopping-trips?limit=" + OFFERS_TRIPS_PAGE_SIZE + "&status[]=Adjusted&status[]=Completed&status[]=Ineligible&status[]=Pending";
+  async function fetchAllOffersTrips() {
+    const all = [];
+    for (let page = 0; page < OFFERS_TRIPS_MAX_PAGES; page++) {
+      const url = OFFERS_TRIPS_BASE + "&offset=" + page * OFFERS_TRIPS_PAGE_SIZE;
+      const r = await fetch(url, { method: "POST", credentials: "include" });
+      if (!r.ok) throw new Error("shopping-trips returned " + r.status);
+      const body = await r.json();
+      const items = Array.isArray(body.data) ? body.data : [];
+      all.push(...items);
+      if (body.hasMore !== true || items.length === 0) break;
+    }
+    return { data: all };
   }
   var STYLES = `
     #c1t-fab {
@@ -1180,7 +1197,7 @@
     return null;
   }
   function findInRouterStream(key) {
-    const re = new RegExp(`"${key}"\\s*,\\s*"([^"\\\\]+)"`);
+    const re = new RegExp(`\\\\?"${key}\\\\?"\\s*,\\s*\\\\?"([^"\\\\]+)\\\\?"`);
     const scripts = document.getElementsByTagName("script");
     for (let i = 0; i < scripts.length; i++) {
       const text = scripts[i].textContent;
@@ -1243,13 +1260,14 @@
     }
     try {
       const r = await fetch(
-        "/xhr/c1-offers/shopping-trips?limit=1&offset=0",
+        "/xhr/shopping-trips?limit=1&offset=0&status[]=Adjusted&status[]=Completed&status[]=Ineligible&status[]=Pending",
         { method: "POST", credentials: "include" }
       );
       if (r.ok) {
-        const data = await r.json();
-        if (Array.isArray(data) && data.length > 0 && typeof data[0]?.accountReferenceId === "string") {
-          userId = data[0].accountReferenceId;
+        const body = await r.json();
+        const first = body?.data?.[0];
+        if (first && typeof first.accountReferenceId === "string") {
+          userId = first.accountReferenceId;
         }
       }
     } catch (e) {
@@ -1505,6 +1523,13 @@
       getBadgeCount: (d) => d?.stats?.withCredit ?? 0
     });
     function handleTripsApiData(data) {
+      if (currentSite === "offers") {
+        const wrapped = data;
+        if (wrapped && wrapped.hasMore === true) {
+          console.log("[C1 Tracker] Intercepted trips page 1 with hasMore=true; will paginate on open");
+          return;
+        }
+      }
       console.log("[C1 Tracker] Captured trips API data");
       tripsProcessed = processTripsData(data);
       console.log("[C1 Tracker] Processed trips:", tripsProcessed.stats);
@@ -1522,12 +1547,7 @@
           if (!r.ok) throw new Error(`API returned ${r.status}`);
           data = await r.json();
         } else {
-          const r = await fetch(CONFIG.offers.trips.apiEndpoint, {
-            method: "POST",
-            credentials: "include"
-          });
-          if (!r.ok) throw new Error(`API returned ${r.status}`);
-          data = await r.json();
+          data = await fetchAllOffersTrips();
         }
         handleTripsApiData(data);
       } catch (e) {

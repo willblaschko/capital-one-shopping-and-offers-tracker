@@ -11,6 +11,7 @@ import {
     CONFIG,
     createUI,
     detectMode,
+    fetchAllOffersTrips,
     getCurrentSite,
     processTripsData,
     renderTripsToModal
@@ -49,6 +50,17 @@ import type { BrowseData, Mode, TripsData } from './types.js';
     });
 
     function handleTripsApiData(data: unknown): void {
+        // On offers, the API returns {data, hasMore}. If hasMore=true, the page
+        // only fetched the first slice — don't cache it as complete, or the FAB
+        // will show a truncated list. Fall through to fetchTripsFallback which
+        // walks every page.
+        if (currentSite === 'offers') {
+            const wrapped = data as { hasMore?: boolean } | null | undefined;
+            if (wrapped && wrapped.hasMore === true) {
+                console.log('[C1 Tracker] Intercepted trips page 1 with hasMore=true; will paginate on open');
+                return;
+            }
+        }
         console.log('[C1 Tracker] Captured trips API data');
         tripsProcessed = processTripsData(data);
         console.log('[C1 Tracker] Processed trips:', tripsProcessed.stats);
@@ -67,12 +79,8 @@ import type { BrowseData, Mode, TripsData } from './types.js';
                 if (!r.ok) throw new Error(`API returned ${r.status}`);
                 data = await r.json();
             } else {
-                const r = await fetch(CONFIG.offers.trips.apiEndpoint, {
-                    method: 'POST',
-                    credentials: 'include'
-                });
-                if (!r.ok) throw new Error(`API returned ${r.status}`);
-                data = await r.json();
+                // Offers: walk all pages via hasMore, not just the first 100.
+                data = await fetchAllOffersTrips();
             }
             handleTripsApiData(data);
         } catch (e) {

@@ -5,7 +5,7 @@
 /**
  * URL gate for the loader. Accepts:
  *   - shopping trips:  capitaloneshopping.com/account-settings/shopping-trips*
- *   - offers trips:    capitaloneoffers.com/c1-offers/shopping-trips*
+ *   - offers trips:    capitaloneoffers.com/shopping-trips*  (was /c1-offers/shopping-trips)
  *   - shopping browse: capitaloneshopping.com/ (exact root)
  *   - offers browse:   capitaloneoffers.com/feed*
  *
@@ -19,7 +19,7 @@ export function isBrowsePagePath(host: string, path: string): boolean {
 
     // Trips paths
     if (onShopping && path.startsWith('/account-settings/shopping-trips')) return true;
-    if (onOffers && path.startsWith('/c1-offers/shopping-trips')) return true;
+    if (onOffers && path.startsWith('/shopping-trips')) return true;
 
     // Browse paths
     if (onShopping && (path === '/' || path === '')) return true;
@@ -54,7 +54,7 @@ export function isBrowsePagePath(host: string, path: string): boolean {
             'Please run this on a Capital One Shopping or Offers page:\n\n' +
                 'Trips:\n' +
                 '  capitaloneshopping.com/account-settings/shopping-trips\n' +
-                '  capitaloneoffers.com/c1-offers/shopping-trips\n\n' +
+                '  capitaloneoffers.com/shopping-trips\n\n' +
                 'Browse:\n' +
                 '  capitaloneshopping.com/\n' +
                 '  capitaloneoffers.com/feed'

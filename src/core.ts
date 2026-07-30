@@ -17,11 +17,13 @@ import type {
 export const CONFIG: ConfigMap = {
     offers: {
         hostname: 'capitaloneoffers',
-        pages: { trips: '/c1-offers/shopping-trips', browse: '/feed' },
+        pages: { trips: '/shopping-trips', browse: '/feed' },
         trips: {
-            apiPattern: (url: string) =>
-                url.includes('/xhr/c1-offers/shopping-trips'),
-            apiEndpoint: '/xhr/c1-offers/shopping-trips?limit=300&offset=0'
+            apiPattern: (url: string) => url.includes('/xhr/shopping-trips'),
+            // First-page endpoint. For the full paginated set, use fetchAllOffersTrips().
+            apiEndpoint:
+                '/xhr/shopping-trips?limit=100&offset=0' +
+                '&status[]=Adjusted&status[]=Completed&status[]=Ineligible&status[]=Pending'
         },
         browse: {
             apiPattern: (url: string) =>
@@ -104,10 +106,12 @@ export function normalizeTrip(raw: RawTrip): Trip {
     const hasCreditAmount = creditAmount !== null && Number(creditAmount) > 0;
 
     // Derive display status based on credit amount and raw status.
-    // Miles API uses "Waiting"/"Inactive" — map to the canonical labels the display logic already understands.
+    // Miles API used to use "Waiting"/"Inactive"; the newer /xhr/shopping-trips
+    // endpoint returns "Pending"/"Ineligible" instead. Map both eras onto the
+    // canonical labels the display logic already understands.
     let rawStatus = raw.status ?? 'Unknown';
     if (rawStatus === 'Waiting') rawStatus = 'Created';
-    else if (rawStatus === 'Inactive') rawStatus = 'Canceled';
+    else if (rawStatus === 'Inactive' || rawStatus === 'Ineligible') rawStatus = 'Canceled';
 
     let displayStatus: string = rawStatus;
     if (hasCreditAmount && rawStatus.toLowerCase() === 'canceled') {
@@ -164,6 +168,35 @@ export function processTripsData(rawData: unknown): TripsData {
                 .length
         }
     };
+}
+
+//=============================================================================
+// Offers trips paginator — /xhr/shopping-trips returns { data, hasMore } and
+// caps at 100 per page. Walk until hasMore=false (or a hard page cap for safety).
+//=============================================================================
+
+const OFFERS_TRIPS_PAGE_SIZE = 100;
+const OFFERS_TRIPS_MAX_PAGES = 50; // 5,000 trip ceiling — safety net, not a real limit
+const OFFERS_TRIPS_BASE =
+    '/xhr/shopping-trips?limit=' + OFFERS_TRIPS_PAGE_SIZE +
+    '&status[]=Adjusted&status[]=Completed&status[]=Ineligible&status[]=Pending';
+
+/**
+ * Fetch every page of the offers trips API and return them in a single
+ * {data: [...]} envelope compatible with processTripsData.
+ */
+export async function fetchAllOffersTrips(): Promise<{ data: RawTrip[] }> {
+    const all: RawTrip[] = [];
+    for (let page = 0; page < OFFERS_TRIPS_MAX_PAGES; page++) {
+        const url = OFFERS_TRIPS_BASE + '&offset=' + page * OFFERS_TRIPS_PAGE_SIZE;
+        const r = await fetch(url, { method: 'POST', credentials: 'include' });
+        if (!r.ok) throw new Error('shopping-trips returned ' + r.status);
+        const body = (await r.json()) as { data?: RawTrip[]; hasMore?: boolean };
+        const items = Array.isArray(body.data) ? body.data : [];
+        all.push(...items);
+        if (body.hasMore !== true || items.length === 0) break;
+    }
+    return { data: all };
 }
 
 //=============================================================================

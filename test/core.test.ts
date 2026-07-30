@@ -18,7 +18,8 @@ import {
     formatCurrency,
     formatDate,
     escapeHtml,
-    getStatusClass
+    getStatusClass,
+    fetchAllOffersTrips
 } from '../src/core.js';
 
 const originalHref = window.location.href;
@@ -41,8 +42,8 @@ describe('detectMode', () => {
         expect(detectMode()).toBe('trips');
     });
 
-    it('returns "trips" on capitaloneoffers c1-offers/shopping-trips path', () => {
-        setUrl('https://capitaloneoffers.com/c1-offers/shopping-trips');
+    it('returns "trips" on capitaloneoffers /shopping-trips path', () => {
+        setUrl('https://capitaloneoffers.com/shopping-trips');
         expect(detectMode()).toBe('trips');
     });
 
@@ -87,7 +88,7 @@ describe('detectMode', () => {
     it('isOnBrowsePage agrees with detectMode === "browse"', () => {
         setUrl('https://capitaloneoffers.com/feed');
         expect(isOnBrowsePage()).toBe(true);
-        setUrl('https://capitaloneoffers.com/c1-offers/shopping-trips');
+        setUrl('https://capitaloneoffers.com/shopping-trips');
         expect(isOnBrowsePage()).toBe(false);
     });
 
@@ -146,7 +147,7 @@ describe('normalizeTrip', () => {
         expect(t.date).toBe('2025-04-01T00:00:00Z');
     });
 
-    it('maps raw status "Waiting" → "Created" and "Inactive" → "Canceled"', () => {
+    it('maps raw status "Waiting" → "Created" and "Inactive"/"Ineligible" → "Canceled"', () => {
         const waiting = normalizeTrip({ vendor: 'V', status: 'Waiting' });
         expect(waiting.rawStatus).toBe('Created');
         expect(waiting.status).toBe('Created');
@@ -154,6 +155,11 @@ describe('normalizeTrip', () => {
         const inactive = normalizeTrip({ vendor: 'V', status: 'Inactive' });
         expect(inactive.rawStatus).toBe('Canceled');
         expect(inactive.status).toBe('Canceled');
+
+        // /xhr/shopping-trips renamed Inactive → Ineligible; must also collapse to Canceled.
+        const ineligible = normalizeTrip({ vendor: 'V', status: 'Ineligible' });
+        expect(ineligible.rawStatus).toBe('Canceled');
+        expect(ineligible.status).toBe('Canceled');
     });
 
     it('Pending with credit becomes "Pending ✓"; without credit becomes "Pending ?"', () => {
@@ -269,6 +275,58 @@ describe('extractTripsArray', () => {
         expect(extractTripsArray(null)).toEqual([]);
         expect(extractTripsArray(undefined)).toEqual([]);
         expect(extractTripsArray({ unrelated: 1 })).toEqual([]);
+    });
+});
+
+//-----------------------------------------------------------------------------
+// fetchAllOffersTrips — pagination via hasMore
+//-----------------------------------------------------------------------------
+
+describe('fetchAllOffersTrips', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('walks pages until hasMore=false and concatenates data', async () => {
+        const calls: string[] = [];
+        const fetchMock = vi.fn(async (url: unknown) => {
+            calls.push(String(url));
+            const offsetMatch = String(url).match(/offset=(\d+)/);
+            const offset = Number(offsetMatch?.[1] ?? 0);
+            // Three pages of 100, then a short final page of 30 with hasMore=false
+            if (offset === 0) return { ok: true, json: async () => ({ data: Array.from({ length: 100 }, (_, i) => ({ vendor: 'p0-' + i })), hasMore: true }) };
+            if (offset === 100) return { ok: true, json: async () => ({ data: Array.from({ length: 100 }, (_, i) => ({ vendor: 'p1-' + i })), hasMore: true }) };
+            if (offset === 200) return { ok: true, json: async () => ({ data: Array.from({ length: 30 }, (_, i) => ({ vendor: 'p2-' + i })), hasMore: false }) };
+            throw new Error('unexpected offset ' + offset);
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const result = await fetchAllOffersTrips();
+        expect(result.data.length).toBe(230);
+        expect(calls.length).toBe(3);
+        expect(calls[0]).toContain('offset=0');
+        expect(calls[1]).toContain('offset=100');
+        expect(calls[2]).toContain('offset=200');
+        // Sanity: correct URL shape (POST verb enforced elsewhere via the mock's call args)
+        expect(calls[0]).toContain('/xhr/shopping-trips');
+        expect(calls[0]).toContain('limit=100');
+    });
+
+    it('stops after one page when hasMore=false on page 1', async () => {
+        const fetchMock = vi.fn(async () => ({
+            ok: true,
+            json: async () => ({ data: [{ vendor: 'only' }], hasMore: false })
+        }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const result = await fetchAllOffersTrips();
+        expect(result.data).toEqual([{ vendor: 'only' }]);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws on non-ok response', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })));
+        await expect(fetchAllOffersTrips()).rejects.toThrow(/500/);
     });
 });
 

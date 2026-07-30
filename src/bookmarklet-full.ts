@@ -9,6 +9,7 @@ import {
     CONFIG,
     createUI,
     detectMode,
+    fetchAllOffersTrips,
     getCurrentSite,
     processTripsData,
     renderTripsToModal
@@ -114,12 +115,8 @@ function runTripsMode(currentSite: 'shopping' | 'offers'): void {
                 if (!response.ok) throw new Error(`API returned ${response.status}`);
                 data = await response.json();
             } else {
-                const response = await fetch(CONFIG.offers.trips.apiEndpoint, {
-                    method: 'POST',
-                    credentials: 'include'
-                });
-                if (!response.ok) throw new Error(`API returned ${response.status}`);
-                data = await response.json();
+                // Offers: walk all pages via hasMore, not just the first 100.
+                data = await fetchAllOffersTrips();
             }
 
             console.log('[C1 Tracker Bookmarklet] Fetched trips data');

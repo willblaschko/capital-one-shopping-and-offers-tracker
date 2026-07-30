@@ -583,12 +583,14 @@ function findKeyRecursive(obj: unknown, keys: string[], depth = 0): string | nul
 /**
  * Scan inline <script> bodies for a "<key>","<value>" pair in the React Router
  * streamed context payload. Cap One Offers (Remix/RR) ships its loader data as
- * comma-separated quoted strings inside streamController.enqueue(...) calls —
- * e.g. ..."viewInstanceId","7001f5b9-..." and ..."maybeSelectedArid","TJfjNq...".
+ * comma-separated quoted strings inside streamController.enqueue(...) calls.
+ * The payload is a JSON-in-JS-string, so the quotes around each field are
+ * backslash-escaped in the raw script text — e.g. \"maybeSelectedArid\",\"TJfjNq...\".
+ * The optional \\? in the pattern handles both escaped and raw forms.
  * Returns the first match across all scripts.
  */
 function findInRouterStream(key: string): string | null {
-    const re = new RegExp(`"${key}"\\s*,\\s*"([^"\\\\]+)"`);
+    const re = new RegExp(`\\\\?"${key}\\\\?"\\s*,\\s*\\\\?"([^"\\\\]+)\\\\?"`);
     const scripts = document.getElementsByTagName('script');
     for (let i = 0; i < scripts.length; i++) {
         const text = scripts[i].textContent;
@@ -689,15 +691,18 @@ export async function fetchOffersBrowseContext(): Promise<OffersBrowseContext | 
     }
 
     // Pull userId from the offers trips API — every entry carries accountReferenceId.
+    // Response envelope is {data: [...], hasMore: boolean}; we only need the first row.
     try {
         const r = await fetch(
-            '/xhr/c1-offers/shopping-trips?limit=1&offset=0',
+            '/xhr/shopping-trips?limit=1&offset=0' +
+                '&status[]=Adjusted&status[]=Completed&status[]=Ineligible&status[]=Pending',
             { method: 'POST', credentials: 'include' }
         );
         if (r.ok) {
-            const data = (await r.json()) as Array<{ accountReferenceId?: string }> | unknown;
-            if (Array.isArray(data) && data.length > 0 && typeof data[0]?.accountReferenceId === 'string') {
-                userId = data[0].accountReferenceId;
+            const body = (await r.json()) as { data?: Array<{ accountReferenceId?: string }> };
+            const first = body?.data?.[0];
+            if (first && typeof first.accountReferenceId === 'string') {
+                userId = first.accountReferenceId;
             }
         }
     } catch (e) {
