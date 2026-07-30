@@ -3,29 +3,18 @@
 // no imports from core.ts / browse.ts (those live in the externally loaded bundle).
 
 /**
- * URL gate for the loader. Accepts:
- *   - shopping trips:  capitaloneshopping.com/account-settings/shopping-trips*
- *   - offers trips:    capitaloneoffers.com/shopping-trips*  (was /c1-offers/shopping-trips)
- *   - shopping browse: capitaloneshopping.com/ (exact root)
- *   - offers browse:   capitaloneoffers.com/feed*
+ * Host gate for the loader. Any capitaloneshopping.com or capitaloneoffers.com
+ * page is allowed through — the CDN-loaded bundle does the real per-mode routing
+ * and shows a nicer "please navigate" alert on unsupported paths. Keeping the
+ * loader host-only means Cap One can move page paths without breaking already-
+ * installed bookmarklets (the bundle auto-updates from GitHub Pages; the loader
+ * URL doesn't).
  *
- * Exported so test/entry-points.test.ts can exercise it directly — the IIFE
- * below pulls the same helper.
+ * The `path` parameter is unused but kept for signature stability with the
+ * existing test suite.
  */
-export function isBrowsePagePath(host: string, path: string): boolean {
-    const onShopping = host.includes('capitaloneshopping');
-    const onOffers = host.includes('capitaloneoffers');
-    if (!onShopping && !onOffers) return false;
-
-    // Trips paths
-    if (onShopping && path.startsWith('/account-settings/shopping-trips')) return true;
-    if (onOffers && path.startsWith('/shopping-trips')) return true;
-
-    // Browse paths
-    if (onShopping && (path === '/' || path === '')) return true;
-    if (onOffers && path.startsWith('/feed')) return true;
-
-    return false;
+export function isBrowsePagePath(host: string, _path: string): boolean {
+    return host.includes('capitaloneshopping') || host.includes('capitaloneoffers');
 }
 
 (function () {
@@ -50,15 +39,7 @@ export function isBrowsePagePath(host: string, path: string): boolean {
     const p = window.location.pathname;
 
     if (!isBrowsePagePath(h, p)) {
-        alert(
-            'Please run this on a Capital One Shopping or Offers page:\n\n' +
-                'Trips:\n' +
-                '  capitaloneshopping.com/account-settings/shopping-trips\n' +
-                '  capitaloneoffers.com/shopping-trips\n\n' +
-                'Browse:\n' +
-                '  capitaloneshopping.com/\n' +
-                '  capitaloneoffers.com/feed'
-        );
+        alert('Please run this on capitaloneshopping.com or capitaloneoffers.com.');
         return;
     }
 

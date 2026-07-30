@@ -6,6 +6,13 @@ View hidden trip data **and** browse every available offer with smart sorting on
 
 ## What's New
 
+**2026-07-30** — Track Cap One's offers-side refactor + real trips pagination
+- Cap One Offers moved the trips page: `/c1-offers/shopping-trips` → `/shopping-trips`. FAB detection and the loader gate both follow suit.
+- Trips XHR moved to `/xhr/shopping-trips` (from `/xhr/c1-offers/shopping-trips`) and now returns `{data, hasMore}` with a hard 100-per-page cap. We now actually paginate via `fetchAllOffersTrips()` (walks pages until `hasMore=false`, hard-capped at 50 pages / 5,000 trips as a safety net). No more silent 100-row truncation.
+- Handle the renamed status: `Inactive` → `Ineligible`. Both collapse to `Canceled` for display.
+- Fixed the React Router streamed-context regex used to discover userId on the bare `/feed` URL. The payload is a JSON-in-JS-string, so quotes are backslash-escaped (`\"maybeSelectedArid\",\"...\"`) — the old regex required raw quotes and never matched in production; the trips-API fallback had been silently carrying the load until that endpoint broke too.
+- **Bookmarklet loader is now host-only.** Path-based gating moved entirely into the CDN-loaded bundle (which auto-updates). Cap One can move page paths without breaking already-installed bookmarklets. Existing bookmarklet users need to **re-drag the bookmarklet one last time** to pick up the new loader — after that, future URL moves propagate automatically.
+
 **2026-06-01** — Browse Offers mode + TypeScript rewrite
 - New **Browse Offers** mode on the Cap One Shopping homepage (`/`) and the Cap One Offers feed (`/feed`). Walks the cursor/token-paginated feeds, normalizes every tile to a canonical Offer, and shows them in collapsible value-tier buckets with search and quick-jump nav.
 - Smart bucketing by reward unit and value range:
@@ -58,7 +65,7 @@ View hidden trip data **and** browse every available offer with smart sorting on
 | URL | Mode |
 |-----|------|
 | `capitaloneshopping.com/account-settings/shopping-trips` | Trips |
-| `capitaloneoffers.com/c1-offers/shopping-trips` | Trips |
+| `capitaloneoffers.com/shopping-trips` | Trips |
 | `capitaloneshopping.com/` (homepage) | Browse |
 | `capitaloneoffers.com/feed` | Browse |
 

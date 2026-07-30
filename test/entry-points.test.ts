@@ -38,59 +38,31 @@ beforeEach(() => {
 // 1) Bookmarklet loader URL gate
 //-----------------------------------------------------------------------------
 
-describe('isBrowsePagePath (loader gate)', () => {
-    it('accepts shopping trips path', () => {
-        expect(
-            isBrowsePagePath(
-                'capitaloneshopping.com',
-                '/account-settings/shopping-trips'
-            )
-        ).toBe(true);
-    });
-
-    it('accepts offers trips path', () => {
-        expect(
-            isBrowsePagePath('capitaloneoffers.com', '/shopping-trips')
-        ).toBe(true);
-    });
-
-    it('accepts shopping homepage (exact root)', () => {
+describe('isBrowsePagePath (loader gate — host-only)', () => {
+    // The loader gate is intentionally host-only. Per-mode routing lives in the
+    // CDN-loaded bundle (which auto-updates) so Cap One can move page paths
+    // without breaking already-installed bookmarklet URLs (which don't).
+    it('accepts any capitaloneshopping path', () => {
         expect(isBrowsePagePath('capitaloneshopping.com', '/')).toBe(true);
-        // empty-string path is also accepted (some user agents)
-        expect(isBrowsePagePath('capitaloneshopping.com', '')).toBe(true);
+        expect(isBrowsePagePath('capitaloneshopping.com', '/account-settings/shopping-trips')).toBe(true);
+        expect(isBrowsePagePath('capitaloneshopping.com', '/cart')).toBe(true);
     });
 
-    it('accepts offers /feed', () => {
+    it('accepts any capitaloneoffers path', () => {
         expect(isBrowsePagePath('capitaloneoffers.com', '/feed')).toBe(true);
+        expect(isBrowsePagePath('capitaloneoffers.com', '/shopping-trips')).toBe(true);
+        expect(isBrowsePagePath('capitaloneoffers.com', '/anything-cap-one-invents-next')).toBe(true);
     });
 
-    it('accepts offers /feed/<anything>', () => {
-        expect(
-            isBrowsePagePath('capitaloneoffers.com', '/feed/abc123')
-        ).toBe(true);
-    });
-
-    it('accepts www. host prefix on shopping', () => {
+    it('accepts www. host prefix', () => {
         expect(isBrowsePagePath('www.capitaloneshopping.com', '/')).toBe(true);
+        expect(isBrowsePagePath('www.capitaloneoffers.com', '/feed')).toBe(true);
     });
 
-    it('rejects shopping non-root non-trips paths', () => {
-        expect(
-            isBrowsePagePath('capitaloneshopping.com', '/account-settings/profile')
-        ).toBe(false);
-    });
-
-    it('rejects shopping deep paths that are not exactly root', () => {
-        expect(isBrowsePagePath('capitaloneshopping.com', '/cart')).toBe(false);
-    });
-
-    it('rejects unrelated hosts', () => {
+    it('rejects unrelated hosts regardless of path', () => {
         expect(isBrowsePagePath('example.com', '/')).toBe(false);
         expect(isBrowsePagePath('example.com', '/feed')).toBe(false);
-    });
-
-    it('rejects offers non-feed non-trips paths', () => {
-        expect(isBrowsePagePath('capitaloneoffers.com', '/account')).toBe(false);
+        expect(isBrowsePagePath('example.com', '/shopping-trips')).toBe(false);
     });
 });
 
