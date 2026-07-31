@@ -34,6 +34,69 @@ import type {
 } from './types.js';
 
 //=============================================================================
+// Throttling — Cap One's offers CDN rate-limits page walks (~429s at speed).
+// Insert a small inter-page delay in walkFeed, and retry any individual page
+// on 429 with backoff (Retry-After respected if present).
+//=============================================================================
+
+// Mutable so tests can drop the delay to 0 without waiting real wall-clock time.
+// Not intended for runtime tuning — use PAGE_DELAY_MS as the effective knob.
+let PAGE_DELAY_MS = 300;           // gap between successive page fetches
+const MAX_RATE_LIMIT_RETRIES = 4;  // per-page retry ceiling on 429
+const BACKOFF_BASE_MS = 500;       // 500ms, 1s, 2s, 4s (+ up to 250ms jitter each)
+
+/** Test hook — set the inter-page delay (and effectively disable it with 0). */
+export function _setPageDelayForTests(ms: number): void {
+    PAGE_DELAY_MS = ms;
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfter(header: string | null): number | null {
+    if (!header) return null;
+    const asInt = Number(header);
+    if (Number.isFinite(asInt) && asInt >= 0) return Math.min(asInt * 1000, 30_000);
+    // Retry-After can also be an HTTP-date; ignore that form here.
+    return null;
+}
+
+/**
+ * fetch() that transparently retries on 429. Any other non-ok response
+ * (403/500/etc.) returns immediately — the walker decides what to do.
+ * Returns null if we ran out of retries or the fetch itself threw.
+ */
+async function fetchWithRetry(
+    input: string,
+    init: RequestInit
+): Promise<Response | null> {
+    for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
+        try {
+            const r = await fetch(input, init);
+            if (r.status !== 429) return r;
+            if (attempt === MAX_RATE_LIMIT_RETRIES) {
+                console.warn('[C1 Tracker] 429 retries exhausted', { url: input });
+                return r;
+            }
+            const retryAfter = parseRetryAfter(r.headers.get('Retry-After'));
+            const backoff = retryAfter ?? BACKOFF_BASE_MS * Math.pow(2, attempt);
+            const jitter = Math.floor(Math.random() * 250);
+            const waitMs = backoff + jitter;
+            console.warn('[C1 Tracker] 429 rate-limited; waiting', waitMs, 'ms', {
+                attempt: attempt + 1,
+                url: input
+            });
+            await sleep(waitMs);
+        } catch (e) {
+            console.warn('[C1 Tracker] fetch threw', e);
+            return null;
+        }
+    }
+    return null;
+}
+
+//=============================================================================
 // Reward parsing
 //=============================================================================
 
@@ -374,6 +437,9 @@ async function walkFeed<TPage, TItem>(cfg: WalkFeedConfig<TPage, TItem>): Promis
     let pages = 0;
 
     while (pages < maxPages) {
+        // Space out requests to avoid tripping Cap One's rate limiter.
+        // Skip the delay before the first page since we've done nothing yet.
+        if (pages > 0) await sleep(PAGE_DELAY_MS);
         const page = await cfg.fetchPage(cursor);
         if (!page) break;
         for (const it of cfg.getItems(page)) {
@@ -446,16 +512,16 @@ export async function walkShoppingFeed(
 ): Promise<WalkResult<Offer>> {
     const cfg: WalkFeedConfig<RawShoppingFeedResponse, RawShoppingFeedItem> = {
         fetchPage: async (cursor) => {
-            const r = await fetch('/api/v1/feed', {
+            const r = await fetchWithRetry('/api/v1/feed', {
                 method: 'POST',
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
                 body: shoppingFeedBody(cursor)
             });
-            if (!r.ok) {
+            if (!r || !r.ok) {
                 console.warn('[C1 Tracker] shopping feed POST failed', {
-                    status: r.status,
-                    statusText: r.statusText,
+                    status: r?.status,
+                    statusText: r?.statusText,
                     cursor
                 });
                 return null;
@@ -536,12 +602,19 @@ export async function walkOffersFeed(
 ): Promise<WalkResult<Offer>> {
     const cfg: WalkFeedConfig<RawOffersFeedResponse, RawOffersFeedTile> = {
         fetchPage: async (cursor) => {
-            const r = await fetch(offersFeedUrl(ctx, cursor), {
+            const r = await fetchWithRetry(offersFeedUrl(ctx, cursor), {
                 method: 'GET',
                 credentials: 'include',
                 headers: { Accept: 'application/json' }
             });
-            if (!r.ok) return null;
+            if (!r || !r.ok) {
+                console.warn('[C1 Tracker] offers feed GET failed', {
+                    status: r?.status,
+                    statusText: r?.statusText,
+                    cursor
+                });
+                return null;
+            }
             return await r.json() as RawOffersFeedResponse;
         },
         getNextCursor: (page) => page.cursor ?? null,

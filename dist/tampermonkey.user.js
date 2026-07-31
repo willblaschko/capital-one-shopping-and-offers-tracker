@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.1.0
+// @version      3.1.1
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*
@@ -870,6 +870,43 @@
   }
 
   // src/browse.ts
+  var PAGE_DELAY_MS = 300;
+  var MAX_RATE_LIMIT_RETRIES = 4;
+  var BACKOFF_BASE_MS = 500;
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+  function parseRetryAfter(header) {
+    if (!header) return null;
+    const asInt = Number(header);
+    if (Number.isFinite(asInt) && asInt >= 0) return Math.min(asInt * 1e3, 3e4);
+    return null;
+  }
+  async function fetchWithRetry(input, init) {
+    for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
+      try {
+        const r = await fetch(input, init);
+        if (r.status !== 429) return r;
+        if (attempt === MAX_RATE_LIMIT_RETRIES) {
+          console.warn("[C1 Tracker] 429 retries exhausted", { url: input });
+          return r;
+        }
+        const retryAfter = parseRetryAfter(r.headers.get("Retry-After"));
+        const backoff = retryAfter ?? BACKOFF_BASE_MS * Math.pow(2, attempt);
+        const jitter = Math.floor(Math.random() * 250);
+        const waitMs = backoff + jitter;
+        console.warn("[C1 Tracker] 429 rate-limited; waiting", waitMs, "ms", {
+          attempt: attempt + 1,
+          url: input
+        });
+        await sleep(waitMs);
+      } catch (e) {
+        console.warn("[C1 Tracker] fetch threw", e);
+        return null;
+      }
+    }
+    return null;
+  }
   var MULTIPLIER_RE = /(\d+(?:\.\d+)?)X/i;
   var PERCENT_RE = /(\d+(?:\.\d+)?)%/;
   var FIXED_CASH_RE = /\$([\d,]+(?:\.\d+)?)/;
@@ -1098,6 +1135,7 @@
     let cursor = null;
     let pages = 0;
     while (pages < maxPages) {
+      if (pages > 0) await sleep(PAGE_DELAY_MS);
       const page = await cfg.fetchPage(cursor);
       if (!page) break;
       for (const it of cfg.getItems(page)) {
@@ -1158,16 +1196,16 @@
   async function walkShoppingFeed(onPage) {
     const cfg = {
       fetchPage: async (cursor) => {
-        const r = await fetch("/api/v1/feed", {
+        const r = await fetchWithRetry("/api/v1/feed", {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: shoppingFeedBody(cursor)
         });
-        if (!r.ok) {
+        if (!r || !r.ok) {
           console.warn("[C1 Tracker] shopping feed POST failed", {
-            status: r.status,
-            statusText: r.statusText,
+            status: r?.status,
+            statusText: r?.statusText,
             cursor
           });
           return null;
@@ -1230,12 +1268,19 @@
   async function walkOffersFeed(ctx, onPage) {
     const cfg = {
       fetchPage: async (cursor) => {
-        const r = await fetch(offersFeedUrl(ctx, cursor), {
+        const r = await fetchWithRetry(offersFeedUrl(ctx, cursor), {
           method: "GET",
           credentials: "include",
           headers: { Accept: "application/json" }
         });
-        if (!r.ok) return null;
+        if (!r || !r.ok) {
+          console.warn("[C1 Tracker] offers feed GET failed", {
+            status: r?.status,
+            statusText: r?.statusText,
+            cursor
+          });
+          return null;
+        }
         return await r.json();
       },
       getNextCursor: (page) => page.cursor ?? null,

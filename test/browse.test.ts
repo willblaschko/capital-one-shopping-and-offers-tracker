@@ -13,8 +13,13 @@ import {
     getOffersBrowseContext,
     walkShoppingFeed,
     walkOffersFeed,
-    renderBrowseToModal
+    renderBrowseToModal,
+    _setPageDelayForTests
 } from '../src/browse.js';
+
+// Walkers use a 300ms inter-page throttle in prod; zero it out for the whole
+// suite so we don't wait real wall-clock time between mocked page fetches.
+_setPageDelayForTests(0);
 import type {
     Offer,
     OffersBrowseContext,
@@ -817,6 +822,63 @@ describe('walkOffersFeed', () => {
 
         const r = await walkOffersFeed(ctx);
         expect(r.items).toHaveLength(1);
+    });
+});
+
+//=============================================================================
+// Rate-limit retry behavior (429 handling in walkFeed)
+//=============================================================================
+
+describe('walkFeed 429 retry', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('retries after a 429 and completes when the next attempt is 200', async () => {
+        const page = { cursor: null, data: [offersStandard] };
+        const fetchMock = vi.fn<typeof fetch>()
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 429,
+                headers: new Headers({ 'Retry-After': '0' })
+            } as Response)
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => page
+            } as Response);
+        vi.stubGlobal('fetch', fetchMock);
+
+        const r = await walkOffersFeed(ctx);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(r.items).toHaveLength(1);
+    });
+
+    it('gives up after MAX_RATE_LIMIT_RETRIES (4) — 5 total attempts, then walk stops', async () => {
+        const fetchMock = vi.fn<typeof fetch>().mockResolvedValue({
+            ok: false,
+            status: 429,
+            headers: new Headers({ 'Retry-After': '0' })
+        } as Response);
+        vi.stubGlobal('fetch', fetchMock);
+
+        const r = await walkOffersFeed(ctx);
+        // 1 initial + 4 retries = 5
+        expect(fetchMock).toHaveBeenCalledTimes(5);
+        expect(r.items).toHaveLength(0);
+        expect(r.pagesWalked).toBe(0);
+    });
+
+    it('non-429 non-ok responses (e.g. 500) are NOT retried and stop the walk', async () => {
+        const fetchMock = vi.fn<typeof fetch>().mockResolvedValue({
+            ok: false,
+            status: 500,
+            statusText: 'Internal Server Error'
+        } as Response);
+        vi.stubGlobal('fetch', fetchMock);
+
+        const r = await walkOffersFeed(ctx);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(r.items).toHaveLength(0);
     });
 });
 
