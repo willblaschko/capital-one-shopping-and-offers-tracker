@@ -416,7 +416,7 @@ describe('bookmarklet-full entry — tabbed UI construction', () => {
         expect(m.browse.walkOffersFeed).not.toHaveBeenCalled();
     });
 
-    it('Browse tab on offers WITH context calls walkOffersFeed(ctx, onPage) on mount (defaultTab=browse)', async () => {
+    it('Browse tab on offers WITH context calls walkOffersFeed(ctx, {onPage, onProgress}) on mount', async () => {
         window.location.href = 'https://capitaloneoffers.com/feed';
         const m = makeMocks({ site: 'offers', mode: 'browse' });
         const ctx = { userId: 'u-1', viewInstanceId: 'v-1' };
@@ -438,7 +438,10 @@ describe('bookmarklet-full entry — tabbed UI construction', () => {
         expect(m.browse.walkOffersFeed).toHaveBeenCalledTimes(1);
         const args = m.browse.walkOffersFeed.mock.calls[0]!;
         expect(args[0]).toEqual(ctx);
-        expect(typeof args[1]).toBe('function'); // onPage callback
+        // Second arg is now an options object with onPage AND onProgress
+        expect(typeof args[1]).toBe('object');
+        expect(typeof (args[1] as { onPage?: unknown }).onPage).toBe('function');
+        expect(typeof (args[1] as { onProgress?: unknown }).onProgress).toBe('function');
     });
 });
 

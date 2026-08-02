@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.4.0
+// @version      3.5.0
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*
@@ -1268,6 +1268,7 @@
       }
       pages++;
       cfg.onPage?.(pages, out.length);
+      cfg.onProgress?.(out, pages);
       const next = cfg.getNextCursor(page);
       if (!next) break;
       cursor = next;
@@ -1315,7 +1316,15 @@
     if (!merch && !reward) return null;
     return `${merch}|${reward}|${item.type}`;
   }
-  async function walkShoppingFeed(onPage) {
+  async function walkShoppingFeed(opts = {}) {
+    const streamNormalized = opts.onProgress ? (items, pages) => {
+      const offers2 = [];
+      for (const it of items) {
+        const o = normalizeShoppingOffer(it);
+        if (o) offers2.push(o);
+      }
+      opts.onProgress(offers2, pages);
+    } : void 0;
     const cfg = {
       fetchPage: async (cursor) => {
         const r = await fetchWithRetry("/api/v1/feed", {
@@ -1345,7 +1354,8 @@
       getNextCursor: (page) => page.pagination?.nextPageToken ?? null,
       getItems: (page) => page.items ?? [],
       dedupeKey: shoppingDedupeKey,
-      ...onPage ? { onPage } : {},
+      ...opts.onPage ? { onPage: opts.onPage } : {},
+      ...streamNormalized ? { onProgress: streamNormalized } : {},
       maxPages: 40
     };
     const walked = await walkFeed(cfg);
@@ -1387,7 +1397,14 @@
     }
     return out;
   }
-  async function walkOffersFeed(ctx, onPage) {
+  async function walkOffersFeed(ctx, opts = {}) {
+    const streamNormalized = opts.onProgress ? (items, pages) => {
+      const offers2 = [];
+      for (const it of items) {
+        for (const o of normalizeOffersFeedTile(it, ctx)) offers2.push(o);
+      }
+      opts.onProgress(offers2, pages);
+    } : void 0;
     const cfg = {
       fetchPage: async (cursor) => {
         const r = await fetchWithRetry(offersFeedUrl(ctx, cursor), {
@@ -1408,7 +1425,8 @@
       getNextCursor: (page) => page.cursor ?? null,
       getItems: (page) => flattenOffersTiles(page.data ?? []),
       dedupeKey: offersDedupeKey,
-      ...onPage ? { onPage } : {},
+      ...opts.onPage ? { onPage: opts.onPage } : {},
+      ...streamNormalized ? { onProgress: streamNormalized } : {},
       maxPages: 40
     };
     const walked = await walkFeed(cfg);
@@ -1734,6 +1752,13 @@
   var renderBrowseToModal = (overlay, data) => {
     const content = overlay.querySelector("#c1t-content");
     if (!content) return;
+    const prevBody = content.querySelector("#c1t-browse-body");
+    const prevScroll = prevBody?.scrollTop ?? 0;
+    const prevInput = content.querySelector("#c1t-browse-search input");
+    const prevQuery = prevInput?.value ?? "";
+    const wasFocused = prevInput === document.activeElement;
+    const selStart = prevInput?.selectionStart ?? null;
+    const selEnd = prevInput?.selectionEnd ?? null;
     const bucketHtml = data.bucketOrder.map((id) => {
       const meta = BUCKET_META_BY_ID[id];
       if (!meta) return "";
@@ -1742,21 +1767,38 @@
       return renderBucket(meta, offers);
     }).join("");
     const chips = buildQuickJumpChips(data);
-    const footerNote = data.stats.hitCap ? `Stopped at ${data.stats.total} items (max pages reached)` : `${data.stats.total} offers across ${data.bucketOrder.length} buckets`;
+    const baseNote = data.stats.hitCap ? `Stopped at ${data.stats.total} offers (max pages reached)` : `${data.stats.total} offers across ${data.bucketOrder.length} buckets`;
+    const loadingPill = data.stats.isLoading ? ` <span class="c1t-loading-pill">\u23F3 ${escapeHtml(data.stats.loadingText ?? "Loading\u2026")}</span>` : "";
     content.innerHTML = `
         <div id="c1t-browse-search">
-            <input type="search" placeholder="Search merchant / reward / type..." />
+            <input type="search" placeholder="Search merchant / reward / type..." value="${escapeHtml(prevQuery)}" />
             <button type="button">Clear</button>
         </div>
         <div id="c1t-browse-nav">${chips}</div>
-        <div id="c1t-browse-stats">${escapeHtml(footerNote)}</div>
+        <div id="c1t-browse-stats">${escapeHtml(baseNote)}${loadingPill}</div>
         <div id="c1t-browse-body">${bucketHtml || '<div style="padding:40px;text-align:center;opacity:0.7;">No offers found.</div>'}</div>
         <div id="c1t-browse-footer">Click a row to activate. Shopping rows open the pre-signed href; offers rows POST then redirect.</div>
     `;
     const body = content.querySelector("#c1t-browse-body");
-    if (body) attachRowClickDelegation(body);
+    if (body) {
+      attachRowClickDelegation(body);
+      if (prevScroll > 0) body.scrollTop = prevScroll;
+    }
     attachSearch(content);
     attachQuickJump(content);
+    if (wasFocused) {
+      const input = content.querySelector("#c1t-browse-search input");
+      if (input) {
+        input.focus();
+        if (selStart !== null && selEnd !== null) {
+          try {
+            input.setSelectionRange(selStart, selEnd);
+          } catch {
+          }
+        }
+        if (prevQuery) input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    }
   };
 
   // src/tampermonkey.ts
@@ -1785,13 +1827,20 @@
         onProgress: (items, pages) => emitPartial(items, pages, "data")
       }));
     }
+    function emitBrowsePartial(offers, pages) {
+      if (!ui) return;
+      const partial = processBrowseData(offers);
+      partial.stats.isLoading = true;
+      partial.stats.loadingText = `Loading page ${pages} (${partial.stats.total} offers)`;
+      ui.setTabData("browse", partial);
+    }
     async function loadBrowse() {
       const onPage = (pages, total) => {
         const loading = document.querySelector("#c1t-loading");
         if (loading) loading.textContent = `Loaded ${pages} pages, ${total} offers...`;
       };
       if (currentSite === "shopping") {
-        const result2 = await walkShoppingFeed(onPage);
+        const result2 = await walkShoppingFeed({ onPage, onProgress: emitBrowsePartial });
         const data2 = processBrowseData(result2.items);
         data2.stats.hitCap = result2.hitCap;
         data2.stats.pagesWalked = result2.pagesWalked;
@@ -1803,7 +1852,7 @@
           "Could not capture offers feed context (userId + viewInstanceId). Open DevTools console for diagnostics."
         );
       }
-      const result = await walkOffersFeed(ctx, onPage);
+      const result = await walkOffersFeed(ctx, { onPage, onProgress: emitBrowsePartial });
       const data = processBrowseData(result.items);
       data.stats.hitCap = result.hitCap;
       data.stats.pagesWalked = result.pagesWalked;

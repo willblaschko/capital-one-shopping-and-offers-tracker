@@ -474,6 +474,7 @@ async function walkFeed<TPage, TItem>(cfg: WalkFeedConfig<TPage, TItem>): Promis
         }
         pages++;
         cfg.onPage?.(pages, out.length);
+        cfg.onProgress?.(out, pages);
         const next = cfg.getNextCursor(page);
         if (!next) break;
         cursor = next;
@@ -531,9 +532,30 @@ function shoppingDedupeKey(item: RawShoppingFeedItem): string | null {
     return `${merch}|${reward}|${item.type}`;
 }
 
-export async function walkShoppingFeed(
-    onPage?: (pages: number, total: number) => void
-): Promise<WalkResult<Offer>> {
+export interface WalkOptions {
+    /** Coarse progress: pages + total raw item count (drives loading text). */
+    onPage?: (pages: number, total: number) => void;
+    /**
+     * Streaming progress: fires after each page with the normalized offers
+     * accumulated so far. Callers use this to render partial results.
+     */
+    onProgress?: (offersSoFar: Offer[], pagesWalked: number) => void;
+}
+
+export async function walkShoppingFeed(opts: WalkOptions = {}): Promise<WalkResult<Offer>> {
+    // Streaming: normalize the raw items we've seen so far and hand them to the
+    // caller. Cheap even at 40 pages × 25 items × dedupe (<1000 items total).
+    const streamNormalized = opts.onProgress
+        ? (items: RawShoppingFeedItem[], pages: number): void => {
+              const offers: Offer[] = [];
+              for (const it of items) {
+                  const o = normalizeShoppingOffer(it);
+                  if (o) offers.push(o);
+              }
+              opts.onProgress!(offers, pages);
+          }
+        : undefined;
+
     const cfg: WalkFeedConfig<RawShoppingFeedResponse, RawShoppingFeedItem> = {
         fetchPage: async (cursor) => {
             const r = await fetchWithRetry('/api/v1/feed', {
@@ -563,7 +585,8 @@ export async function walkShoppingFeed(
         getNextCursor: (page) => page.pagination?.nextPageToken ?? null,
         getItems: (page) => page.items ?? [],
         dedupeKey: shoppingDedupeKey,
-        ...(onPage ? { onPage } : {}),
+        ...(opts.onPage ? { onPage: opts.onPage } : {}),
+        ...(streamNormalized ? { onProgress: streamNormalized } : {}),
         maxPages: 40
     };
 
@@ -622,8 +645,18 @@ function flattenOffersTiles(tiles: RawOffersFeedTile[]): RawOffersFeedTile[] {
 
 export async function walkOffersFeed(
     ctx: OffersBrowseContext,
-    onPage?: (pages: number, total: number) => void
+    opts: WalkOptions = {}
 ): Promise<WalkResult<Offer>> {
+    const streamNormalized = opts.onProgress
+        ? (items: RawOffersFeedTile[], pages: number): void => {
+              const offers: Offer[] = [];
+              for (const it of items) {
+                  for (const o of normalizeOffersFeedTile(it, ctx)) offers.push(o);
+              }
+              opts.onProgress!(offers, pages);
+          }
+        : undefined;
+
     const cfg: WalkFeedConfig<RawOffersFeedResponse, RawOffersFeedTile> = {
         fetchPage: async (cursor) => {
             const r = await fetchWithRetry(offersFeedUrl(ctx, cursor), {
@@ -644,7 +677,8 @@ export async function walkOffersFeed(
         getNextCursor: (page) => page.cursor ?? null,
         getItems: (page) => flattenOffersTiles(page.data ?? []),
         dedupeKey: offersDedupeKey,
-        ...(onPage ? { onPage } : {}),
+        ...(opts.onPage ? { onPage: opts.onPage } : {}),
+        ...(streamNormalized ? { onProgress: streamNormalized } : {}),
         maxPages: 40
     };
 
@@ -1082,6 +1116,17 @@ export const renderBrowseToModal: RenderFn<BrowseData> = (overlay, data) => {
     const content = overlay.querySelector('#c1t-content');
     if (!content) return;
 
+    // Preserve prior state across streaming re-renders: scroll position on the
+    // main body, and search input value + focus/selection so typing isn't
+    // clobbered by an incoming page.
+    const prevBody = content.querySelector<HTMLElement>('#c1t-browse-body');
+    const prevScroll = prevBody?.scrollTop ?? 0;
+    const prevInput = content.querySelector<HTMLInputElement>('#c1t-browse-search input');
+    const prevQuery = prevInput?.value ?? '';
+    const wasFocused = prevInput === document.activeElement;
+    const selStart = prevInput?.selectionStart ?? null;
+    const selEnd = prevInput?.selectionEnd ?? null;
+
     const bucketHtml = data.bucketOrder.map(id => {
         const meta = BUCKET_META_BY_ID[id];
         if (!meta) return '';
@@ -1091,25 +1136,45 @@ export const renderBrowseToModal: RenderFn<BrowseData> = (overlay, data) => {
     }).join('');
 
     const chips = buildQuickJumpChips(data);
-    const footerNote = data.stats.hitCap
-        ? `Stopped at ${data.stats.total} items (max pages reached)`
+    const baseNote = data.stats.hitCap
+        ? `Stopped at ${data.stats.total} offers (max pages reached)`
         : `${data.stats.total} offers across ${data.bucketOrder.length} buckets`;
+    const loadingPill = data.stats.isLoading
+        ? ` <span class="c1t-loading-pill">⏳ ${escapeHtml(data.stats.loadingText ?? 'Loading…')}</span>`
+        : '';
 
     content.innerHTML = `
         <div id="c1t-browse-search">
-            <input type="search" placeholder="Search merchant / reward / type..." />
+            <input type="search" placeholder="Search merchant / reward / type..." value="${escapeHtml(prevQuery)}" />
             <button type="button">Clear</button>
         </div>
         <div id="c1t-browse-nav">${chips}</div>
-        <div id="c1t-browse-stats">${escapeHtml(footerNote)}</div>
+        <div id="c1t-browse-stats">${escapeHtml(baseNote)}${loadingPill}</div>
         <div id="c1t-browse-body">${bucketHtml || '<div style="padding:40px;text-align:center;opacity:0.7;">No offers found.</div>'}</div>
         <div id="c1t-browse-footer">Click a row to activate. Shopping rows open the pre-signed href; offers rows POST then redirect.</div>
     `;
 
     const body = content.querySelector('#c1t-browse-body') as HTMLElement | null;
-    if (body) attachRowClickDelegation(body);
+    if (body) {
+        attachRowClickDelegation(body);
+        if (prevScroll > 0) body.scrollTop = prevScroll;
+    }
     attachSearch(content as HTMLElement);
     attachQuickJump(content as HTMLElement);
+
+    // Restore search input focus/selection if the user was mid-type when a
+    // streaming re-render happened.
+    if (wasFocused) {
+        const input = content.querySelector<HTMLInputElement>('#c1t-browse-search input');
+        if (input) {
+            input.focus();
+            if (selStart !== null && selEnd !== null) {
+                try { input.setSelectionRange(selStart, selEnd); } catch { /* ignore */ }
+            }
+            // Re-apply the filter since attachSearch's initial no-op run happened before this.
+            if (prevQuery) input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+    }
 };
 
 // Re-export for callers that want bucket metadata

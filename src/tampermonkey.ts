@@ -25,7 +25,7 @@ import {
     walkOffersFeed,
     walkShoppingFeed
 } from './browse.js';
-import type { BrowseData, TabbedUIHandle, TripsData } from './types.js';
+import type { BrowseData, Offer, TabbedUIHandle, TripsData } from './types.js';
 
 (function () {
     'use strict';
@@ -70,13 +70,23 @@ import type { BrowseData, TabbedUIHandle, TripsData } from './types.js';
         }));
     }
 
+    // Emits partial BrowseData after each browse page so the modal renders
+    // rows as they stream in. Same treatment as trips.
+    function emitBrowsePartial(offers: Offer[], pages: number): void {
+        if (!ui) return;
+        const partial = processBrowseData(offers);
+        partial.stats.isLoading = true;
+        partial.stats.loadingText = `Loading page ${pages} (${partial.stats.total} offers)`;
+        ui.setTabData('browse', partial);
+    }
+
     async function loadBrowse(): Promise<BrowseData> {
         const onPage = (pages: number, total: number): void => {
             const loading = document.querySelector('#c1t-loading');
             if (loading) loading.textContent = `Loaded ${pages} pages, ${total} offers...`;
         };
         if (currentSite === 'shopping') {
-            const result = await walkShoppingFeed(onPage);
+            const result = await walkShoppingFeed({ onPage, onProgress: emitBrowsePartial });
             const data = processBrowseData(result.items);
             data.stats.hitCap = result.hitCap;
             data.stats.pagesWalked = result.pagesWalked;
@@ -89,7 +99,7 @@ import type { BrowseData, TabbedUIHandle, TripsData } from './types.js';
                     'Open DevTools console for diagnostics.'
             );
         }
-        const result = await walkOffersFeed(ctx, onPage);
+        const result = await walkOffersFeed(ctx, { onPage, onProgress: emitBrowsePartial });
         const data = processBrowseData(result.items);
         data.stats.hitCap = result.hitCap;
         data.stats.pagesWalked = result.pagesWalked;

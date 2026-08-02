@@ -180,6 +180,10 @@ export interface BrowseStats {
     byBucket: Partial<Record<BucketId, number>>;
     hitCap?: boolean;
     pagesWalked?: number;
+    /** True while a walker is still fetching more pages. */
+    isLoading?: boolean;
+    /** Loading pill text, e.g. "Loading page 3 (276 offers)". */
+    loadingText?: string;
 }
 
 export interface BrowseData {
@@ -374,6 +378,12 @@ export interface WalkFeedConfig<TPage, TItem> {
     fetchPage: (cursor: string | null) => Promise<TPage | null>;
     getNextCursor: (page: TPage) => string | null | undefined;
     getItems: (page: TPage) => TItem[];
+    /**
+     * Fires after each page is fetched with the accumulated raw items so far.
+     * Used by streaming callers that want to render partial results as pages
+     * arrive. Called AFTER onPage. The array reference is live — do not mutate.
+     */
+    onProgress?: (itemsSoFar: TItem[], pagesWalked: number) => void;
     dedupeKey: (item: TItem) => string | null;
     onPage?: (pagesWalked: number, totalItems: number) => void;
     maxPages?: number;

@@ -745,9 +745,32 @@ describe('walkShoppingFeed', () => {
         vi.stubGlobal('fetch', fetchMock);
 
         const onPage = vi.fn();
-        await walkShoppingFeed(onPage);
+        await walkShoppingFeed({ onPage });
         expect(onPage).toHaveBeenCalledTimes(1);
         expect(onPage).toHaveBeenCalledWith(1, 1);
+    });
+
+    it('onProgress fires after each page with the accumulated NORMALIZED offers', async () => {
+        const page1 = { pagination: { nextPageToken: 'tok2' }, items: [shoppingGreatDeal] };
+        const page2 = { pagination: { nextPageToken: null }, items: [shoppingEvent] };
+        const fetchMock = vi.fn<typeof fetch>()
+            .mockResolvedValueOnce({ ok: true, json: async () => page1 } as Response)
+            .mockResolvedValueOnce({ ok: true, json: async () => page2 } as Response);
+        vi.stubGlobal('fetch', fetchMock);
+
+        const snapshots: Array<{ len: number; pages: number; firstDomain: string | null }> = [];
+        await walkShoppingFeed({
+            onProgress: (offers, pages) => snapshots.push({
+                len: offers.length,
+                pages,
+                firstDomain: offers[0]?.domain ?? null
+            })
+        });
+        expect(snapshots.length).toBe(2);
+        expect(snapshots[0]!.len).toBe(1);
+        expect(snapshots[0]!.pages).toBe(1);
+        expect(snapshots[1]!.len).toBe(2);
+        expect(snapshots[1]!.pages).toBe(2);
     });
 
     it('stops on empty items if no next-token', async () => {
@@ -823,6 +846,24 @@ describe('walkOffersFeed', () => {
 
         const r = await walkOffersFeed(ctx);
         expect(r.items).toHaveLength(1);
+    });
+
+    it('onProgress fires after each page with the accumulated NORMALIZED offers', async () => {
+        const page1 = { cursor: 'c2', data: [offersStandard] };
+        const page2 = { cursor: null, data: [offersHero] };
+        const fetchMock = vi.fn<typeof fetch>()
+            .mockResolvedValueOnce({ ok: true, json: async () => page1 } as Response)
+            .mockResolvedValueOnce({ ok: true, json: async () => page2 } as Response);
+        vi.stubGlobal('fetch', fetchMock);
+
+        const snapshots: Array<{ len: number; pages: number }> = [];
+        await walkOffersFeed(ctx, {
+            onProgress: (offers, pages) => snapshots.push({ len: offers.length, pages })
+        });
+        expect(snapshots).toEqual([
+            { len: 1, pages: 1 },
+            { len: 2, pages: 2 }
+        ]);
     });
 });
 
@@ -1195,6 +1236,40 @@ describe('renderBrowseToModal', () => {
         const chips = overlay.querySelectorAll('.c1t-jump-chip');
         // Specials present: events. Multiplier present (mult-30 and mult-1).
         expect(chips.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('shows the loading pill in #c1t-browse-stats when stats.isLoading=true', () => {
+        const overlay = makeOverlay();
+        const data = makeBrowseData();
+        data.stats.isLoading = true;
+        data.stats.loadingText = 'Loading page 3 (276 offers)';
+        renderBrowseToModal(overlay, data);
+        const stats = overlay.querySelector('#c1t-browse-stats');
+        expect(stats).not.toBeNull();
+        expect(stats!.innerHTML).toContain('c1t-loading-pill');
+        expect(stats!.textContent).toContain('Loading page 3');
+    });
+
+    it('preserves body scrollTop across incremental re-renders', () => {
+        const overlay = makeOverlay();
+        renderBrowseToModal(overlay, makeBrowseData());
+        const body = overlay.querySelector<HTMLElement>('#c1t-browse-body')!;
+        body.scrollTop = 200;
+        renderBrowseToModal(overlay, makeBrowseData());
+        const body2 = overlay.querySelector<HTMLElement>('#c1t-browse-body')!;
+        expect(body2.scrollTop).toBe(200);
+    });
+
+    it('preserves search input value + focus across incremental re-renders', () => {
+        const overlay = makeOverlay();
+        renderBrowseToModal(overlay, makeBrowseData());
+        const input = overlay.querySelector<HTMLInputElement>('#c1t-browse-search input')!;
+        input.value = 'wo';
+        input.focus();
+        renderBrowseToModal(overlay, makeBrowseData());
+        const input2 = overlay.querySelector<HTMLInputElement>('#c1t-browse-search input')!;
+        expect(input2.value).toBe('wo');
+        expect(document.activeElement).toBe(input2);
     });
 });
 
