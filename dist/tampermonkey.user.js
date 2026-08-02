@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.5.1
+// @version      3.6.0
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*
@@ -328,6 +328,49 @@
     .c1t-tab:hover { color: var(--c1t-text) !important; }
     .c1t-tab.active { color: var(--c1t-text) !important; border-bottom-color: var(--c1t-accent) !important; }
 
+    /* --- Loading banner (below tabs, above content) --- */
+    #c1t-progress-banner {
+        display: flex !important;
+        align-items: center !important;
+        gap: 10px !important;
+        padding: 0 16px !important;
+        background: rgba(97, 175, 239, 0.06) !important;
+        border-bottom: 0 solid var(--c1t-border) !important;
+        color: var(--c1t-text) !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        flex-shrink: 0 !important;
+        max-height: 0 !important;
+        opacity: 0 !important;
+        overflow: hidden !important;
+        transition: max-height 0.2s ease, opacity 0.2s ease,
+            padding 0.2s ease, border-bottom-width 0.2s ease !important;
+    }
+    #c1t-progress-banner.c1t-visible {
+        max-height: 44px !important;
+        opacity: 1 !important;
+        padding-top: 10px !important;
+        padding-bottom: 10px !important;
+        border-bottom-width: 1px !important;
+    }
+    .c1t-spinner {
+        width: 14px !important;
+        height: 14px !important;
+        border: 2px solid var(--c1t-border-strong) !important;
+        border-top-color: var(--c1t-accent) !important;
+        border-radius: 50% !important;
+        display: inline-block !important;
+        flex-shrink: 0 !important;
+        animation: c1t-spin 0.8s linear infinite !important;
+    }
+    .c1t-progress-label { color: var(--c1t-text) !important; }
+    .c1t-progress-label strong {
+        color: var(--c1t-accent) !important;
+        font-weight: 600 !important;
+        font-variant-numeric: tabular-nums !important;
+    }
+    @keyframes c1t-spin { to { transform: rotate(360deg); } }
+
     /* --- Stats + loading pill --- */
     #c1t-stats {
         padding: 8px 16px !important;
@@ -343,16 +386,6 @@
     }
     #c1t-stats .stat { display: inline-flex !important; align-items: baseline !important; gap: 5px !important; }
     #c1t-stats strong { color: var(--c1t-text) !important; font-weight: 600 !important; font-variant-numeric: tabular-nums !important; }
-    #c1t-stats .c1t-loading-pill {
-        border: 1px solid var(--c1t-attention) !important;
-        color: var(--c1t-attention) !important;
-        padding: 2px 8px !important;
-        border-radius: 4px !important;
-        font-size: 13px !important;
-        font-weight: 500 !important;
-        margin-left: auto !important;
-        background: transparent !important;
-    }
 
     /* --- Filter chips --- */
     #c1t-filters {
@@ -394,6 +427,13 @@
         font-size: 14px !important;
         color: var(--c1t-text) !important;
     }
+    #c1t-table.c1t-table-fixed { table-layout: fixed !important; }
+    #c1t-table.c1t-table-fixed td {
+        word-wrap: break-word !important;
+        overflow-wrap: anywhere !important;
+    }
+    /* Zebra striping \u2014 subtle brightness lift on odd rows only. */
+    #c1t-table tbody tr:nth-child(odd) { background: rgba(255,255,255,0.015) !important; }
     #c1t-table th {
         text-align: left !important;
         padding: 8px 12px !important;
@@ -560,36 +600,61 @@
         padding: 8px !important;
     }
     .c1t-bucket {
-        margin-bottom: 6px !important;
+        margin-bottom: 10px !important;
         background: var(--c1t-bg-elevated) !important;
         border: 1px solid var(--c1t-border) !important;
         border-radius: 6px !important;
     }
+    /* Bucket group header \u2014 heavier hierarchy so it stands apart from the
+       merchant rows inside. Accent-colored disclosure caret, larger label. */
     .c1t-bucket > summary {
-        padding: 8px 12px !important;
+        padding: 12px 14px !important;
         cursor: pointer !important;
-        font-weight: 500 !important;
-        font-size: 14px !important;
+        font-weight: 700 !important;
+        font-size: 15px !important;
         color: var(--c1t-text) !important;
         list-style: none !important;
         user-select: none !important;
         display: flex !important;
         align-items: center !important;
-        gap: 8px !important;
+        gap: 10px !important;
+        letter-spacing: 0.01em !important;
+        background: var(--c1t-bg-hover) !important;
+        border-radius: 6px 6px 0 0 !important;
     }
+    .c1t-bucket:not([open]) > summary { border-radius: 6px !important; }
+    .c1t-bucket > summary:hover { background: rgba(97, 175, 239, 0.06) !important; }
     .c1t-bucket > summary::-webkit-details-marker { display: none !important; }
     .c1t-bucket > summary::before {
         content: '\u25B8' !important;
-        font-size: 12px !important;
-        color: var(--c1t-text-muted) !important;
+        font-size: 13px !important;
+        color: var(--c1t-accent) !important;
         transition: transform 0.12s !important;
+        flex-shrink: 0 !important;
     }
     .c1t-bucket[open] > summary::before { transform: rotate(90deg) !important; }
-    .c1t-bucket-count { color: var(--c1t-text-muted) !important; font-weight: 400 !important; font-size: 13px !important; }
-    .c1t-bucket table { width: 100% !important; border-collapse: collapse !important; font-size: 14px !important; }
+    .c1t-bucket-count {
+        color: var(--c1t-text-muted) !important;
+        font-weight: 400 !important;
+        font-size: 13px !important;
+        margin-left: auto !important;
+    }
+    .c1t-bucket table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        font-size: 14px !important;
+        table-layout: fixed !important;
+    }
+    /* Fixed column widths for browse rows \u2014 merchant/reward/badge/ends/exclusions.
+       Adjust in the renderer if the column list changes. */
+    .c1t-bucket colgroup col.merchant  { width: 22% !important; }
+    .c1t-bucket colgroup col.reward    { width: 15% !important; }
+    .c1t-bucket colgroup col.badge     { width: 15% !important; }
+    .c1t-bucket colgroup col.ends      { width: 12% !important; }
+    .c1t-bucket colgroup col.exclusions { width: 36% !important; }
     .c1t-bucket th {
         text-align: left !important;
-        padding: 6px 10px !important;
+        padding: 8px 12px !important;
         border-top: 1px solid var(--c1t-border) !important;
         border-bottom: 1px solid var(--c1t-border) !important;
         font-weight: 500 !important;
@@ -600,11 +665,16 @@
         background: var(--c1t-bg) !important;
     }
     .c1t-bucket td {
-        padding: 7px 10px !important;
+        padding: 8px 12px !important;
         border-bottom: 1px solid var(--c1t-border) !important;
         color: var(--c1t-text) !important;
         font-variant-numeric: tabular-nums !important;
+        word-wrap: break-word !important;
+        overflow-wrap: anywhere !important;
+        vertical-align: top !important;
     }
+    /* Zebra rows to help scanning across long merchant names. */
+    .c1t-bucket tbody tr:nth-child(odd) { background: rgba(255,255,255,0.015) !important; }
     .c1t-bucket tr:last-child td { border-bottom: none !important; }
     .c1t-row-click { cursor: pointer !important; }
     .c1t-row-click:hover { background: var(--c1t-bg-hover) !important; }
@@ -718,14 +788,12 @@
     if (!content) return;
     const prevWrap = content.querySelector("#c1t-table-wrap");
     const prevScroll = prevWrap?.scrollTop ?? 0;
-    const loadingPill = stats.isLoading ? `<span class="stat c1t-loading-pill">\u23F3 ${escapeHtml(stats.loadingText ?? "Loading\u2026")}</span>` : "";
     content.innerHTML = `
         <div id="c1t-stats">
             <span class="stat"><strong>${stats.total}</strong> total</span>
             <span class="stat"><strong>${stats.withOrderId}</strong> tracked</span>
             <span class="stat"><strong>${stats.withAmount}</strong> with amount</span>
             <span class="stat"><strong>${stats.withCredit}</strong> with cashback</span>
-            ${loadingPill}
         </div>
         <div id="c1t-filters">
             <button class="c1t-filter-btn active" data-filter="all">All (${stats.total})</button>
@@ -735,7 +803,17 @@
             <button class="c1t-filter-btn" data-filter="created">Waiting (${stats.created})</button>
         </div>
         <div id="c1t-table-wrap">
-            <table id="c1t-table">
+            <table id="c1t-table" class="c1t-table-fixed">
+                <colgroup>
+                    <col style="width: 18%" />
+                    <col style="width: 9%" />
+                    <col style="width: 12%" />
+                    <col style="width: 12%" />
+                    <col style="width: 14%" />
+                    <col style="width: 10%" />
+                    <col style="width: 7%" />
+                    <col style="width: 18%" />
+                </colgroup>
                 <thead>
                     <tr>
                         <th>Merchant</th>
@@ -819,7 +897,8 @@
       throw new Error(`createTabbedUI: defaultTabId "${defaultTabId}" not in tabs`);
     }
     const dataByTab = /* @__PURE__ */ new Map();
-    const loadingByTab = /* @__PURE__ */ new Map();
+    const inFlightByTab = /* @__PURE__ */ new Map();
+    const progressTextByTab = /* @__PURE__ */ new Map();
     let stylesInjected = false;
     let activeTabId = defaultTabId;
     function findTab(id) {
@@ -870,6 +949,10 @@
         (t) => `<button class="c1t-tab${t.id === activeTabId ? " active" : ""}" data-tab-id="${escapeHtml(t.id)}">${escapeHtml(t.label)}</button>`
       ).join("")}
                 </div>
+                <div id="c1t-progress-banner" role="status" aria-live="polite">
+                    <span class="c1t-spinner"></span>
+                    <span class="c1t-progress-label"></span>
+                </div>
                 <div id="c1t-content"></div>
             </div>
         `;
@@ -899,6 +982,7 @@
           btn.classList.toggle("active", btn.dataset.tabId === id);
         });
       }
+      refreshProgressBanner();
       const content = overlay?.querySelector("#c1t-content");
       if (dataByTab.has(id)) {
         if (content) tab.render(overlay, dataByTab.get(id));
@@ -910,8 +994,8 @@
         }
         return;
       }
-      if (loadingByTab.has(id)) {
-        await loadingByTab.get(id);
+      if (inFlightByTab.has(id)) {
+        await inFlightByTab.get(id);
         return;
       }
       if (content) {
@@ -931,10 +1015,11 @@
             c.innerHTML = `<div id="c1t-loading">Error loading data: ${escapeHtml(msg)}</div>`;
           }
         } finally {
-          loadingByTab.delete(id);
+          inFlightByTab.delete(id);
+          setTabLoading(id, null);
         }
       })();
-      loadingByTab.set(id, loadPromise);
+      inFlightByTab.set(id, loadPromise);
       await loadPromise;
     }
     function setActiveTab(id) {
@@ -948,6 +1033,23 @@
       const overlay = document.getElementById("c1t-overlay");
       if (overlay && activeTabId === id) {
         tab.render(overlay, data);
+      }
+    }
+    function setTabLoading(id, text) {
+      if (text == null) progressTextByTab.delete(id);
+      else progressTextByTab.set(id, text);
+      if (activeTabId === id) refreshProgressBanner();
+    }
+    function refreshProgressBanner() {
+      const banner = document.getElementById("c1t-progress-banner");
+      if (!banner) return;
+      const text = progressTextByTab.get(activeTabId);
+      const label = banner.querySelector(".c1t-progress-label");
+      if (text) {
+        if (label) label.textContent = text;
+        banner.classList.add("c1t-visible");
+      } else {
+        banner.classList.remove("c1t-visible");
       }
     }
     function refreshBadge() {
@@ -978,6 +1080,7 @@
       ensureOverlay,
       setActiveTab,
       setTabData,
+      setTabLoading,
       getActiveTabId: () => activeTabId
     };
   }
@@ -1588,8 +1691,15 @@
     }).join("");
     const openAttr = meta.initiallyOpen ? " open" : "";
     return `<details class="c1t-bucket" data-bucket-id="${meta.id}"${openAttr}>
-        <summary>${escapeHtml(meta.label)} <span class="c1t-bucket-count">(${offers.length})</span></summary>
+        <summary>${escapeHtml(meta.label)} <span class="c1t-bucket-count">${offers.length}</span></summary>
         <table>
+            <colgroup>
+                <col class="merchant" />
+                <col class="reward" />
+                <col class="badge" />
+                <col class="ends" />
+                <col class="exclusions" />
+            </colgroup>
             <thead>
                 <tr><th>Merchant</th><th>Reward</th><th>Badge</th><th>Ends</th><th>Exclusions</th></tr>
             </thead>
@@ -1768,14 +1878,13 @@
     }).join("");
     const chips = buildQuickJumpChips(data);
     const baseNote = data.stats.hitCap ? `Stopped at ${data.stats.total} offers (max pages reached)` : `${data.stats.total} offers across ${data.bucketOrder.length} buckets`;
-    const loadingPill = data.stats.isLoading ? ` <span class="c1t-loading-pill">\u23F3 ${escapeHtml(data.stats.loadingText ?? "Loading\u2026")}</span>` : "";
     content.innerHTML = `
         <div id="c1t-browse-search">
             <input type="search" placeholder="Search merchant / reward / type..." value="${escapeHtml(prevQuery)}" />
             <button type="button">Clear</button>
         </div>
         <div id="c1t-browse-nav">${chips}</div>
-        <div id="c1t-browse-stats">${escapeHtml(baseNote)}${loadingPill}</div>
+        <div id="c1t-browse-stats">${escapeHtml(baseNote)}</div>
         <div id="c1t-browse-body">${bucketHtml || '<div style="padding:40px;text-align:center;opacity:0.7;">No offers found.</div>'}</div>
         <div id="c1t-browse-footer">Click a row to activate. Shopping rows open the pre-signed href; offers rows POST then redirect.</div>
     `;
@@ -1813,9 +1922,8 @@
       if (!ui) return;
       const envelope = envelopeKey === "data" ? { data: itemsSoFar } : { items: itemsSoFar };
       const partial = processTripsData(envelope);
-      partial.stats.isLoading = true;
-      partial.stats.loadingText = `Loading page ${pagesWalked} (${partial.stats.total} trips)`;
       ui.setTabData("trips", partial);
+      ui.setTabLoading("trips", `Loading page ${pagesWalked} \xB7 ${partial.stats.total} trips`);
     }
     async function loadTrips() {
       if (currentSite === "shopping") {
@@ -1830,9 +1938,8 @@
     function emitBrowsePartial(offers, pages) {
       if (!ui) return;
       const partial = processBrowseData(offers);
-      partial.stats.isLoading = true;
-      partial.stats.loadingText = `Loading page ${pages} (${partial.stats.total} offers)`;
       ui.setTabData("browse", partial);
+      ui.setTabLoading("browse", `Loading page ${pages} \xB7 ${partial.stats.total} offers`);
     }
     async function loadBrowse() {
       const onPage = (pages, total) => {

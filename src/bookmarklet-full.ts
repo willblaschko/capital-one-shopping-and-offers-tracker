@@ -51,9 +51,8 @@ import type { BrowseData, Offer, TabbedUIHandle, TripsData } from './types.js';
         if (!ui) return;
         const envelope = envelopeKey === 'data' ? { data: itemsSoFar } : { items: itemsSoFar };
         const partial = processTripsData(envelope);
-        partial.stats.isLoading = true;
-        partial.stats.loadingText = `Loading page ${pagesWalked} (${partial.stats.total} trips)`;
         ui.setTabData('trips', partial);
+        ui.setTabLoading('trips', `Loading page ${pagesWalked} · ${partial.stats.total} trips`);
     }
 
     async function loadTrips(): Promise<TripsData> {
@@ -73,9 +72,8 @@ import type { BrowseData, Offer, TabbedUIHandle, TripsData } from './types.js';
     function emitBrowsePartial(offers: Offer[], pages: number): void {
         if (!ui) return;
         const partial = processBrowseData(offers);
-        partial.stats.isLoading = true;
-        partial.stats.loadingText = `Loading page ${pages} (${partial.stats.total} offers)`;
         ui.setTabData('browse', partial);
+        ui.setTabLoading('browse', `Loading page ${pages} · ${partial.stats.total} offers`);
     }
 
     async function loadBrowse(): Promise<BrowseData> {

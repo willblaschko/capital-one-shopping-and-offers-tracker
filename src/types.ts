@@ -362,6 +362,12 @@ export interface TabbedUIHandle {
      * interceptor to pre-populate the Trips tab).
      */
     setTabData: (id: string, data: unknown) => void;
+    /**
+     * Show / update / hide the loading banner (spinner + text) beneath the
+     * tab bar. Pass null to clear. Banner is only visible when the given
+     * tab is currently active. Auto-cleared when onActivate resolves.
+     */
+    setTabLoading: (id: string, text: string | null) => void;
     /** Current active tab id (mainly for tests). */
     getActiveTabId: () => string;
 }

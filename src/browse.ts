@@ -921,8 +921,15 @@ function renderBucket(meta: BucketMeta, offers: Offer[]): string {
 
     const openAttr = meta.initiallyOpen ? ' open' : '';
     return `<details class="c1t-bucket" data-bucket-id="${meta.id}"${openAttr}>
-        <summary>${escapeHtml(meta.label)} <span class="c1t-bucket-count">(${offers.length})</span></summary>
+        <summary>${escapeHtml(meta.label)} <span class="c1t-bucket-count">${offers.length}</span></summary>
         <table>
+            <colgroup>
+                <col class="merchant" />
+                <col class="reward" />
+                <col class="badge" />
+                <col class="ends" />
+                <col class="exclusions" />
+            </colgroup>
             <thead>
                 <tr><th>Merchant</th><th>Reward</th><th>Badge</th><th>Ends</th><th>Exclusions</th></tr>
             </thead>
@@ -1139,9 +1146,8 @@ export const renderBrowseToModal: RenderFn<BrowseData> = (overlay, data) => {
     const baseNote = data.stats.hitCap
         ? `Stopped at ${data.stats.total} offers (max pages reached)`
         : `${data.stats.total} offers across ${data.bucketOrder.length} buckets`;
-    const loadingPill = data.stats.isLoading
-        ? ` <span class="c1t-loading-pill">⏳ ${escapeHtml(data.stats.loadingText ?? 'Loading…')}</span>`
-        : '';
+    // Loading state is now shown by createTabbedUI's #c1t-progress-banner
+    // (below tabs, above content). No inline pill in stats anymore.
 
     content.innerHTML = `
         <div id="c1t-browse-search">
@@ -1149,7 +1155,7 @@ export const renderBrowseToModal: RenderFn<BrowseData> = (overlay, data) => {
             <button type="button">Clear</button>
         </div>
         <div id="c1t-browse-nav">${chips}</div>
-        <div id="c1t-browse-stats">${escapeHtml(baseNote)}${loadingPill}</div>
+        <div id="c1t-browse-stats">${escapeHtml(baseNote)}</div>
         <div id="c1t-browse-body">${bucketHtml || '<div style="padding:40px;text-align:center;opacity:0.7;">No offers found.</div>'}</div>
         <div id="c1t-browse-footer">Click a row to activate. Shopping rows open the pre-signed href; offers rows POST then redirect.</div>
     `;

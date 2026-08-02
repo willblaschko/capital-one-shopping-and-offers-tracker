@@ -583,6 +583,71 @@ describe('createTabbedUI', () => {
         expect(ui.getActiveTabId()).toBe('browse');
         expect(browseBtn!.classList.contains('active')).toBe(true);
     });
+
+    it('setTabLoading shows the banner with text on the active tab and hides it when nulled', () => {
+        const ui = createTabbedUI({
+            title: 'X',
+            defaultTabId: 'trips',
+            tabs: [makeTabDef('trips'), makeTabDef('browse')]
+        });
+        ui.ensureOverlay();
+        const banner = document.getElementById('c1t-progress-banner')!;
+        const label = banner.querySelector('.c1t-progress-label')!;
+        // Banner starts hidden
+        expect(banner.classList.contains('c1t-visible')).toBe(false);
+
+        ui.setTabLoading('trips', 'Loading page 3 · 250 trips');
+        expect(banner.classList.contains('c1t-visible')).toBe(true);
+        expect(label.textContent).toBe('Loading page 3 · 250 trips');
+
+        ui.setTabLoading('trips', null);
+        expect(banner.classList.contains('c1t-visible')).toBe(false);
+    });
+
+    it('setTabLoading on a non-active tab does not surface the banner until switched', async () => {
+        const ui = createTabbedUI({
+            title: 'X',
+            defaultTabId: 'trips',
+            tabs: [makeTabDef('trips'), makeTabDef('browse')]
+        });
+        ui.ensureOverlay();
+        const banner = document.getElementById('c1t-progress-banner')!;
+
+        // Loading state set on browse while trips is active — banner stays hidden.
+        ui.setTabLoading('browse', 'Loading page 2 · 40 offers');
+        expect(banner.classList.contains('c1t-visible')).toBe(false);
+
+        // Switch to browse — banner surfaces with the stored text.
+        const browseBtn = document.querySelector<HTMLButtonElement>('.c1t-tab[data-tab-id="browse"]')!;
+        browseBtn.click();
+        await new Promise((r) => setTimeout(r, 0));
+        expect(banner.classList.contains('c1t-visible')).toBe(true);
+        expect(banner.querySelector('.c1t-progress-label')!.textContent).toBe('Loading page 2 · 40 offers');
+    });
+
+    it('banner auto-clears when a tab\'s onActivate promise resolves', async () => {
+        const ui = createTabbedUI({
+            title: 'X',
+            defaultTabId: 'trips',
+            tabs: [
+                makeTabDef<{ n: number }>('trips', {
+                    onActivate: async () => {
+                        // Simulate a streaming loader that sets the banner during its work
+                        ui.setTabLoading('trips', 'Loading page 1 · 5 trips');
+                        return { n: 5 };
+                    }
+                })
+            ]
+        });
+        ui.ensureOverlay();
+        ui.setActiveTab('trips');
+        await new Promise((r) => setTimeout(r, 0));
+        await new Promise((r) => setTimeout(r, 0));
+
+        const banner = document.getElementById('c1t-progress-banner')!;
+        // After onActivate resolved, banner should be hidden (auto-cleared in finally)
+        expect(banner.classList.contains('c1t-visible')).toBe(false);
+    });
 });
 
 //-----------------------------------------------------------------------------
@@ -626,21 +691,9 @@ describe('renderTripsToModal', () => {
         expect(() => renderTripsToModal(overlay, data)).not.toThrow();
     });
 
-    it('shows the loading pill in the stats bar when stats.isLoading=true', () => {
-        const overlay = document.createElement('div');
-        overlay.id = 'c1t-overlay';
-        overlay.innerHTML = '<div id="c1t-content"></div>';
-        document.body.appendChild(overlay);
-
-        const data: TripsData = processTripsData([{ vendor: 'X', status: 'Completed' }]);
-        data.stats.isLoading = true;
-        data.stats.loadingText = 'Loading page 3 (250 trips)';
-        renderTripsToModal(overlay, data);
-
-        const pill = overlay.querySelector('.c1t-loading-pill');
-        expect(pill).not.toBeNull();
-        expect(pill!.textContent).toContain('Loading page 3');
-    });
+    // NB: The inline loading pill in #c1t-stats was removed; loading state is
+    // now surfaced by createTabbedUI's #c1t-progress-banner (below the tabs),
+    // driven by ui.setTabLoading(id, text). Covered in the createTabbedUI suite.
 
     it('preserves table-wrap scrollTop across incremental re-renders', () => {
         const overlay = document.createElement('div');

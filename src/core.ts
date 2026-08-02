@@ -433,6 +433,49 @@ export const STYLES = `
     .c1t-tab:hover { color: var(--c1t-text) !important; }
     .c1t-tab.active { color: var(--c1t-text) !important; border-bottom-color: var(--c1t-accent) !important; }
 
+    /* --- Loading banner (below tabs, above content) --- */
+    #c1t-progress-banner {
+        display: flex !important;
+        align-items: center !important;
+        gap: 10px !important;
+        padding: 0 16px !important;
+        background: rgba(97, 175, 239, 0.06) !important;
+        border-bottom: 0 solid var(--c1t-border) !important;
+        color: var(--c1t-text) !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        flex-shrink: 0 !important;
+        max-height: 0 !important;
+        opacity: 0 !important;
+        overflow: hidden !important;
+        transition: max-height 0.2s ease, opacity 0.2s ease,
+            padding 0.2s ease, border-bottom-width 0.2s ease !important;
+    }
+    #c1t-progress-banner.c1t-visible {
+        max-height: 44px !important;
+        opacity: 1 !important;
+        padding-top: 10px !important;
+        padding-bottom: 10px !important;
+        border-bottom-width: 1px !important;
+    }
+    .c1t-spinner {
+        width: 14px !important;
+        height: 14px !important;
+        border: 2px solid var(--c1t-border-strong) !important;
+        border-top-color: var(--c1t-accent) !important;
+        border-radius: 50% !important;
+        display: inline-block !important;
+        flex-shrink: 0 !important;
+        animation: c1t-spin 0.8s linear infinite !important;
+    }
+    .c1t-progress-label { color: var(--c1t-text) !important; }
+    .c1t-progress-label strong {
+        color: var(--c1t-accent) !important;
+        font-weight: 600 !important;
+        font-variant-numeric: tabular-nums !important;
+    }
+    @keyframes c1t-spin { to { transform: rotate(360deg); } }
+
     /* --- Stats + loading pill --- */
     #c1t-stats {
         padding: 8px 16px !important;
@@ -448,16 +491,6 @@ export const STYLES = `
     }
     #c1t-stats .stat { display: inline-flex !important; align-items: baseline !important; gap: 5px !important; }
     #c1t-stats strong { color: var(--c1t-text) !important; font-weight: 600 !important; font-variant-numeric: tabular-nums !important; }
-    #c1t-stats .c1t-loading-pill {
-        border: 1px solid var(--c1t-attention) !important;
-        color: var(--c1t-attention) !important;
-        padding: 2px 8px !important;
-        border-radius: 4px !important;
-        font-size: 13px !important;
-        font-weight: 500 !important;
-        margin-left: auto !important;
-        background: transparent !important;
-    }
 
     /* --- Filter chips --- */
     #c1t-filters {
@@ -499,6 +532,13 @@ export const STYLES = `
         font-size: 14px !important;
         color: var(--c1t-text) !important;
     }
+    #c1t-table.c1t-table-fixed { table-layout: fixed !important; }
+    #c1t-table.c1t-table-fixed td {
+        word-wrap: break-word !important;
+        overflow-wrap: anywhere !important;
+    }
+    /* Zebra striping — subtle brightness lift on odd rows only. */
+    #c1t-table tbody tr:nth-child(odd) { background: rgba(255,255,255,0.015) !important; }
     #c1t-table th {
         text-align: left !important;
         padding: 8px 12px !important;
@@ -665,36 +705,61 @@ export const STYLES = `
         padding: 8px !important;
     }
     .c1t-bucket {
-        margin-bottom: 6px !important;
+        margin-bottom: 10px !important;
         background: var(--c1t-bg-elevated) !important;
         border: 1px solid var(--c1t-border) !important;
         border-radius: 6px !important;
     }
+    /* Bucket group header — heavier hierarchy so it stands apart from the
+       merchant rows inside. Accent-colored disclosure caret, larger label. */
     .c1t-bucket > summary {
-        padding: 8px 12px !important;
+        padding: 12px 14px !important;
         cursor: pointer !important;
-        font-weight: 500 !important;
-        font-size: 14px !important;
+        font-weight: 700 !important;
+        font-size: 15px !important;
         color: var(--c1t-text) !important;
         list-style: none !important;
         user-select: none !important;
         display: flex !important;
         align-items: center !important;
-        gap: 8px !important;
+        gap: 10px !important;
+        letter-spacing: 0.01em !important;
+        background: var(--c1t-bg-hover) !important;
+        border-radius: 6px 6px 0 0 !important;
     }
+    .c1t-bucket:not([open]) > summary { border-radius: 6px !important; }
+    .c1t-bucket > summary:hover { background: rgba(97, 175, 239, 0.06) !important; }
     .c1t-bucket > summary::-webkit-details-marker { display: none !important; }
     .c1t-bucket > summary::before {
         content: '▸' !important;
-        font-size: 12px !important;
-        color: var(--c1t-text-muted) !important;
+        font-size: 13px !important;
+        color: var(--c1t-accent) !important;
         transition: transform 0.12s !important;
+        flex-shrink: 0 !important;
     }
     .c1t-bucket[open] > summary::before { transform: rotate(90deg) !important; }
-    .c1t-bucket-count { color: var(--c1t-text-muted) !important; font-weight: 400 !important; font-size: 13px !important; }
-    .c1t-bucket table { width: 100% !important; border-collapse: collapse !important; font-size: 14px !important; }
+    .c1t-bucket-count {
+        color: var(--c1t-text-muted) !important;
+        font-weight: 400 !important;
+        font-size: 13px !important;
+        margin-left: auto !important;
+    }
+    .c1t-bucket table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        font-size: 14px !important;
+        table-layout: fixed !important;
+    }
+    /* Fixed column widths for browse rows — merchant/reward/badge/ends/exclusions.
+       Adjust in the renderer if the column list changes. */
+    .c1t-bucket colgroup col.merchant  { width: 22% !important; }
+    .c1t-bucket colgroup col.reward    { width: 15% !important; }
+    .c1t-bucket colgroup col.badge     { width: 15% !important; }
+    .c1t-bucket colgroup col.ends      { width: 12% !important; }
+    .c1t-bucket colgroup col.exclusions { width: 36% !important; }
     .c1t-bucket th {
         text-align: left !important;
-        padding: 6px 10px !important;
+        padding: 8px 12px !important;
         border-top: 1px solid var(--c1t-border) !important;
         border-bottom: 1px solid var(--c1t-border) !important;
         font-weight: 500 !important;
@@ -705,11 +770,16 @@ export const STYLES = `
         background: var(--c1t-bg) !important;
     }
     .c1t-bucket td {
-        padding: 7px 10px !important;
+        padding: 8px 12px !important;
         border-bottom: 1px solid var(--c1t-border) !important;
         color: var(--c1t-text) !important;
         font-variant-numeric: tabular-nums !important;
+        word-wrap: break-word !important;
+        overflow-wrap: anywhere !important;
+        vertical-align: top !important;
     }
+    /* Zebra rows to help scanning across long merchant names. */
+    .c1t-bucket tbody tr:nth-child(odd) { background: rgba(255,255,255,0.015) !important; }
     .c1t-bucket tr:last-child td { border-bottom: none !important; }
     .c1t-row-click { cursor: pointer !important; }
     .c1t-row-click:hover { background: var(--c1t-bg-hover) !important; }
@@ -838,17 +908,14 @@ export const renderTripsToModal: RenderFn<TripsData> = (overlay, data) => {
     const prevWrap = content.querySelector<HTMLElement>('#c1t-table-wrap');
     const prevScroll = prevWrap?.scrollTop ?? 0;
 
-    const loadingPill = stats.isLoading
-        ? `<span class="stat c1t-loading-pill">⏳ ${escapeHtml(stats.loadingText ?? 'Loading…')}</span>`
-        : '';
-
+    // Loading state lives in createTabbedUI's #c1t-progress-banner (below tabs,
+    // above content) — no inline pill here anymore.
     content.innerHTML = `
         <div id="c1t-stats">
             <span class="stat"><strong>${stats.total}</strong> total</span>
             <span class="stat"><strong>${stats.withOrderId}</strong> tracked</span>
             <span class="stat"><strong>${stats.withAmount}</strong> with amount</span>
             <span class="stat"><strong>${stats.withCredit}</strong> with cashback</span>
-            ${loadingPill}
         </div>
         <div id="c1t-filters">
             <button class="c1t-filter-btn active" data-filter="all">All (${stats.total})</button>
@@ -858,7 +925,17 @@ export const renderTripsToModal: RenderFn<TripsData> = (overlay, data) => {
             <button class="c1t-filter-btn" data-filter="created">Waiting (${stats.created})</button>
         </div>
         <div id="c1t-table-wrap">
-            <table id="c1t-table">
+            <table id="c1t-table" class="c1t-table-fixed">
+                <colgroup>
+                    <col style="width: 18%" />
+                    <col style="width: 9%" />
+                    <col style="width: 12%" />
+                    <col style="width: 12%" />
+                    <col style="width: 14%" />
+                    <col style="width: 10%" />
+                    <col style="width: 7%" />
+                    <col style="width: 18%" />
+                </colgroup>
                 <thead>
                     <tr>
                         <th>Merchant</th>
@@ -982,7 +1059,10 @@ export function createTabbedUI(options: CreateTabbedUIOptions): TabbedUIHandle {
     // Per-tab data cache. Populated by onActivate (lazy) or setTabData (interceptor).
     const dataByTab = new Map<string, unknown>();
     // Per-tab in-flight promise so double-clicks don't fire multiple loaders.
-    const loadingByTab = new Map<string, Promise<void>>();
+    const inFlightByTab = new Map<string, Promise<void>>();
+    // Per-tab loading banner text ("Loading page 3 (46 offers)"). Renamed from
+    // the old loadingByTab (which was the in-flight promise map) to avoid confusion.
+    const progressTextByTab = new Map<string, string>();
 
     let stylesInjected = false;
     let activeTabId = defaultTabId;
@@ -1044,6 +1124,10 @@ export function createTabbedUI(options: CreateTabbedUIOptions): TabbedUIHandle {
                         )
                         .join('')}
                 </div>
+                <div id="c1t-progress-banner" role="status" aria-live="polite">
+                    <span class="c1t-spinner"></span>
+                    <span class="c1t-progress-label"></span>
+                </div>
                 <div id="c1t-content"></div>
             </div>
         `;
@@ -1078,6 +1162,9 @@ export function createTabbedUI(options: CreateTabbedUIOptions): TabbedUIHandle {
                 btn.classList.toggle('active', btn.dataset.tabId === id);
             });
         }
+        // Banner state is per-tab; refresh so switching tabs shows/hides
+        // the banner based on the destination tab's loading state.
+        refreshProgressBanner();
 
         const content = overlay?.querySelector<HTMLElement>('#c1t-content');
 
@@ -1096,8 +1183,8 @@ export function createTabbedUI(options: CreateTabbedUIOptions): TabbedUIHandle {
         }
 
         // Coalesce concurrent activations of the same tab.
-        if (loadingByTab.has(id)) {
-            await loadingByTab.get(id);
+        if (inFlightByTab.has(id)) {
+            await inFlightByTab.get(id);
             return;
         }
 
@@ -1119,10 +1206,12 @@ export function createTabbedUI(options: CreateTabbedUIOptions): TabbedUIHandle {
                     c.innerHTML = `<div id="c1t-loading">Error loading data: ${escapeHtml(msg)}</div>`;
                 }
             } finally {
-                loadingByTab.delete(id);
+                inFlightByTab.delete(id);
+                // Whatever the loader was streaming is now done — clear the banner.
+                setTabLoading(id, null);
             }
         })();
-        loadingByTab.set(id, loadPromise);
+        inFlightByTab.set(id, loadPromise);
         await loadPromise;
     }
 
@@ -1139,6 +1228,25 @@ export function createTabbedUI(options: CreateTabbedUIOptions): TabbedUIHandle {
         const overlay = document.getElementById('c1t-overlay');
         if (overlay && activeTabId === id) {
             tab.render(overlay, data);
+        }
+    }
+
+    function setTabLoading(id: string, text: string | null): void {
+        if (text == null) progressTextByTab.delete(id);
+        else progressTextByTab.set(id, text);
+        if (activeTabId === id) refreshProgressBanner();
+    }
+
+    function refreshProgressBanner(): void {
+        const banner = document.getElementById('c1t-progress-banner');
+        if (!banner) return;
+        const text = progressTextByTab.get(activeTabId);
+        const label = banner.querySelector('.c1t-progress-label');
+        if (text) {
+            if (label) label.textContent = text;
+            banner.classList.add('c1t-visible');
+        } else {
+            banner.classList.remove('c1t-visible');
         }
     }
 
@@ -1176,6 +1284,7 @@ export function createTabbedUI(options: CreateTabbedUIOptions): TabbedUIHandle {
         ensureOverlay,
         setActiveTab,
         setTabData,
+        setTabLoading,
         getActiveTabId: () => activeTabId
     };
 }

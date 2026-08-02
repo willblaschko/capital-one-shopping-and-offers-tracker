@@ -1238,17 +1238,9 @@ describe('renderBrowseToModal', () => {
         expect(chips.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('shows the loading pill in #c1t-browse-stats when stats.isLoading=true', () => {
-        const overlay = makeOverlay();
-        const data = makeBrowseData();
-        data.stats.isLoading = true;
-        data.stats.loadingText = 'Loading page 3 (276 offers)';
-        renderBrowseToModal(overlay, data);
-        const stats = overlay.querySelector('#c1t-browse-stats');
-        expect(stats).not.toBeNull();
-        expect(stats!.innerHTML).toContain('c1t-loading-pill');
-        expect(stats!.textContent).toContain('Loading page 3');
-    });
+    // NB: The inline loading pill in #c1t-browse-stats was removed; the
+    // banner (#c1t-progress-banner) beneath the tabs handles it now. Covered
+    // in the createTabbedUI suite in core.test.ts.
 
     it('preserves body scrollTop across incremental re-renders', () => {
         const overlay = makeOverlay();

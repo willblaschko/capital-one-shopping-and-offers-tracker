@@ -45,14 +45,15 @@ import type { BrowseData, Offer, TabbedUIHandle, TripsData } from './types.js';
     // active tab as pages stream in. Assigned after createTabbedUI below.
     let ui: TabbedUIHandle;
 
-    // Wraps accumulated raw items into a partial TripsData with a loading pill.
+    // Wraps accumulated raw items into a partial TripsData and updates the
+    // loading banner text. The banner + spinner live in createTabbedUI's
+    // #c1t-progress-banner; auto-cleared when onActivate resolves.
     function emitPartial(itemsSoFar: unknown, pagesWalked: number, envelopeKey: 'data' | 'items'): void {
         if (!ui) return;
         const envelope = envelopeKey === 'data' ? { data: itemsSoFar } : { items: itemsSoFar };
         const partial = processTripsData(envelope);
-        partial.stats.isLoading = true;
-        partial.stats.loadingText = `Loading page ${pagesWalked} (${partial.stats.total} trips)`;
         ui.setTabData('trips', partial);
+        ui.setTabLoading('trips', `Loading page ${pagesWalked} · ${partial.stats.total} trips`);
     }
 
     async function loadTrips(): Promise<TripsData> {
@@ -70,14 +71,12 @@ import type { BrowseData, Offer, TabbedUIHandle, TripsData } from './types.js';
         }));
     }
 
-    // Emits partial BrowseData after each browse page so the modal renders
-    // rows as they stream in. Same treatment as trips.
+    // Emits partial BrowseData after each browse page + updates the banner text.
     function emitBrowsePartial(offers: Offer[], pages: number): void {
         if (!ui) return;
         const partial = processBrowseData(offers);
-        partial.stats.isLoading = true;
-        partial.stats.loadingText = `Loading page ${pages} (${partial.stats.total} offers)`;
         ui.setTabData('browse', partial);
+        ui.setTabLoading('browse', `Loading page ${pages} · ${partial.stats.total} offers`);
     }
 
     async function loadBrowse(): Promise<BrowseData> {
