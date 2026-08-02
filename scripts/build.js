@@ -22,7 +22,7 @@ function pickEntry(stem) {
 const TAMPERMONKEY_HEADER = `// ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.1.3
+// @version      3.1.4
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*

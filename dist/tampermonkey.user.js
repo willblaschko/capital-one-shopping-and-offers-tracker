@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.1.3
+// @version      3.1.4
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*
@@ -1503,7 +1503,8 @@
     try {
       const r = await fetch(url, { method: "POST", credentials: "include" });
       if (!r.ok) throw new Error(`Activation returned ${r.status}`);
-      const data = await r.json();
+      const raw = await r.json();
+      const data = raw?.offer ? raw.offer : raw;
       const redirect = data?.affiliate?.redirectUrl;
       if (redirect && tab) {
         tab.location = redirect;
@@ -1520,6 +1521,7 @@
         alert("Card-linked activation limit reached \u2014 cancel an existing activation and try again.");
         return;
       }
+      console.warn("[C1 Tracker] Activation POST returned detail shape (no redirectUrl)", data);
       tab?.close?.();
       alert("Activation failed \u2014 response had no redirect and no card-linked activation.");
     } catch (e) {

@@ -933,7 +933,11 @@ async function handlePostOffersClick(row: HTMLElement): Promise<void> {
     try {
         const r = await fetch(url, { method: 'POST', credentials: 'include' });
         if (!r.ok) throw new Error(`Activation returned ${r.status}`);
-        const data = await r.json() as RawOffersActivationResponse;
+        const raw = await r.json() as RawOffersActivationResponse;
+
+        // Cap One sometimes wraps the payload as {success, offer: {...}}; unwrap so
+        // downstream reads work on either shape.
+        const data: RawOffersActivationResponse = raw?.offer ? raw.offer : raw;
 
         // Affiliate offer → redirect the popup tab to the signed merchant URL.
         const redirect = data?.affiliate?.redirectUrl;
@@ -956,6 +960,10 @@ async function handlePostOffersClick(row: HTMLElement): Promise<void> {
             return;
         }
 
+        // If we got here with an `affiliate.categories` payload but no
+        // redirectUrl, the POST returned detail data rather than an activation —
+        // means Cap One's flow changed again. Log so it's obvious from the console.
+        console.warn('[C1 Tracker] Activation POST returned detail shape (no redirectUrl)', data);
         tab?.close?.();
         alert('Activation failed — response had no redirect and no card-linked activation.');
     } catch (e) {

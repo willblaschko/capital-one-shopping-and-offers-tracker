@@ -261,11 +261,25 @@ export interface RawOffersFeedResponse {
 //   - affiliate offers  → { affiliate: { redirectUrl, ... } } (browser navigates)
 //   - card-linked offers → { cardLinked: { isActivated, activationId, ... } } (no redirect;
 //                          the offer is now attached to the user's card server-side)
+//
+// Cap One sometimes wraps a detail-panel response in { success, offer: {...} } for
+// the same URL (GET returns detail, POST returns activation) — the client tolerates
+// both shapes rather than tightly coupling to one.
 export interface RawOffersActivationResponse {
+    // Optional wrapper: some detail responses look like {success, offer: {...affiliate}}
+    success?: boolean;
+    offer?: Omit<RawOffersActivationResponse, 'success' | 'offer'>;
+
     affiliate?: {
-        redirectUrl: string;
+        redirectUrl?: string;
         loyaltyTripReferenceId?: string;
+        shoppingTripId?: string;
         welcomeBackMarkdownText?: string;
+        // Detail-shape fields — present on GET responses; absent on activation POSTs
+        header?: string;
+        displayAmount?: string;
+        categories?: Array<{ name: string; displayAmount: string }>;
+        callouts?: Array<{ type: string; iconName?: string; markdownText: string }>;
     };
     cardLinked?: {
         merchantTLD?: string;
