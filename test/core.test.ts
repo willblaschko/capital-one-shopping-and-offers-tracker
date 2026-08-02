@@ -174,6 +174,35 @@ describe('normalizeTrip', () => {
         expect(uncertain.status).toBe('Pending ?');
     });
 
+    it('extracts offers-side rewardDisplay + exclusions when present', () => {
+        const t = normalizeTrip({
+            merchantDisplayName: 'Woot',
+            status: 'Completed',
+            rewardsSummaryDisplayRate: 'Up to 3X miles',
+            merchantExclusions: 'Not eligible for the purchase of wine or gourmet items.',
+            rewards: [
+                { categoryName: 'Everything Else', displayRate: '3X miles' },
+                { categoryName: 'PC/Electronics', displayRate: '1X miles' }
+            ]
+        });
+        expect(t.rewardDisplay).toBe('Up to 3X miles');
+        expect(t.exclusions).toBe('Not eligible for the purchase of wine or gourmet items.');
+    });
+
+    it('falls back to first rewards[].displayRate when rewardsSummaryDisplayRate absent', () => {
+        const t = normalizeTrip({
+            merchantDisplayName: 'X',
+            rewards: [{ categoryName: 'A', displayRate: '5,000 miles' }]
+        });
+        expect(t.rewardDisplay).toBe('5,000 miles');
+    });
+
+    it('rewardDisplay + exclusions default to "" on shopping-side raw trips (no such fields)', () => {
+        const t = normalizeTrip({ vendor: 'V', orderId: '1' });
+        expect(t.rewardDisplay).toBe('');
+        expect(t.exclusions).toBe('');
+    });
+
     it('Canceled (lowercase) with credit becomes "Completed"', () => {
         const t = normalizeTrip({
             vendor: 'V',

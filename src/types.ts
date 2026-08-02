@@ -47,6 +47,10 @@ export interface Trip {
     hasOrderId: boolean;
     hasAmount: boolean;
     hasCreditAmount: boolean;
+    /** Offers-side: pretty summary rate like "Up to 3X miles". Empty string when absent. */
+    rewardDisplay: string;
+    /** Offers-side: legal exclusions text. Empty string when absent. */
+    exclusions: string;
     raw: RawTrip;
 }
 
@@ -91,6 +95,11 @@ export interface RawTrip {
     activatedOfferId?: string;
     accountCurrency?: 'miles' | 'cashback' | string;
     payoutMechanism?: string;
+    // Offers-side (new /xhr/shopping-trips) enrichment fields:
+    rewards?: Array<{ categoryName: string; displayRate: string }>;
+    rewardsSummaryDisplayRate?: string;
+    merchantExclusions?: string;
+    payoutAmountDisplay?: string;
     [k: string]: unknown;
 }
 

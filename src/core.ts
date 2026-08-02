@@ -146,6 +146,13 @@ export function normalizeTrip(raw: RawTrip): Trip {
         hasOrderId: orderId !== null,
         hasAmount: orderAmount !== null && Number(orderAmount) > 0,
         hasCreditAmount: hasCreditAmount,
+        // Offers-side enrichment; shopping trips don't carry these, so default to "".
+        // Prefer the summary rate; fall back to the top per-category rate; else blank.
+        rewardDisplay:
+            raw.rewardsSummaryDisplayRate ??
+            (Array.isArray(raw.rewards) ? raw.rewards[0]?.displayRate : undefined) ??
+            '',
+        exclusions: raw.merchantExclusions ?? '',
         raw: raw
     };
 }
@@ -728,8 +735,10 @@ export const renderTripsToModal: RenderFn<TripsData> = (overlay, data) => {
                         <th class="c">Date</th>
                         <th class="r">Order</th>
                         <th class="r">Cash Back</th>
+                        <th>Rate</th>
                         <th class="c">Status</th>
                         <th class="c">Tracked</th>
+                        <th>Exclusions</th>
                     </tr>
                 </thead>
                 <tbody id="c1t-tbody">
@@ -741,6 +750,13 @@ export const renderTripsToModal: RenderFn<TripsData> = (overlay, data) => {
                                 ? 'tracked'
                                 : '';
                             const statusClass = getStatusClass(t.status);
+                            const exclText = t.exclusions ?? '';
+                            const exclLong = exclText.length > 60;
+                            const exclHtml = !exclText
+                                ? '<span style="opacity:0.4">—</span>'
+                                : exclLong
+                                    ? `<div class="c1t-excl-cell" title="${escapeHtml(exclText)}"><span class="c1t-excl-text">${escapeHtml(exclText)}</span><button type="button" class="c1t-excl-toggle">(more)</button></div>`
+                                    : `<div class="c1t-excl-cell" title="${escapeHtml(exclText)}"><span class="c1t-excl-text">${escapeHtml(exclText)}</span></div>`;
                             return `
                                 <tr class="${rowClass}" data-filter-amount="${t.hasAmount}" data-filter-tracked="${t.hasOrderId}" data-filter-pending="${t.status
                                 .toLowerCase()
@@ -751,8 +767,10 @@ export const renderTripsToModal: RenderFn<TripsData> = (overlay, data) => {
                                     <td class="c">${formatDate(t.date)}</td>
                                     <td class="r ${t.hasAmount ? 'c1t-amount' : ''}">${formatCurrency(t.orderAmount)}</td>
                                     <td class="r ${t.hasCreditAmount ? 'c1t-credit' : ''}">${formatCurrency(t.creditAmount)}</td>
+                                    <td>${escapeHtml(t.rewardDisplay) || '<span style="opacity:0.4">—</span>'}</td>
                                     <td class="c"><span class="c1t-status ${statusClass}">${escapeHtml(t.status)}</span></td>
                                     <td class="c">${t.hasOrderId ? '✓' : '—'}</td>
+                                    <td>${exclHtml}</td>
                                 </tr>
                             `;
                         })
@@ -799,6 +817,18 @@ export const renderTripsToModal: RenderFn<TripsData> = (overlay, data) => {
                             row.dataset[key] === 'true' ? '' : 'none';
                     }
                 });
+        });
+    });
+
+    // Exclusions (more)/(less) toggle — mirrors the browse-side pattern.
+    content.querySelectorAll<HTMLButtonElement>('.c1t-excl-toggle').forEach((toggle) => {
+        toggle.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            ev.preventDefault();
+            const cell = toggle.closest('.c1t-excl-cell') as HTMLElement | null;
+            if (!cell) return;
+            const expanded = cell.classList.toggle('c1t-excl-expanded');
+            toggle.textContent = expanded ? '(less)' : '(more)';
         });
     });
 };
