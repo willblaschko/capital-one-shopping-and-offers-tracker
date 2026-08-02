@@ -19,7 +19,8 @@ import {
     formatDate,
     escapeHtml,
     getStatusClass,
-    fetchAllOffersTrips
+    fetchAllOffersTrips,
+    fetchAllShoppingTrips
 } from '../src/core.js';
 
 const originalHref = window.location.href;
@@ -356,6 +357,57 @@ describe('fetchAllOffersTrips', () => {
     it('throws on non-ok response', async () => {
         vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })));
         await expect(fetchAllOffersTrips()).rejects.toThrow(/500/);
+    });
+});
+
+//-----------------------------------------------------------------------------
+// fetchAllShoppingTrips — pagination via short-page termination
+//-----------------------------------------------------------------------------
+
+describe('fetchAllShoppingTrips', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('walks pages until a short page (len < limit) and concatenates items', async () => {
+        const calls: string[] = [];
+        // Paginator uses limit=100. Return 100 twice, then 30 to signal end.
+        const fetchMock = vi.fn(async (url: unknown) => {
+            calls.push(String(url));
+            const offsetMatch = String(url).match(/offset=(\d+)/);
+            const offset = Number(offsetMatch?.[1] ?? 0);
+            if (offset === 0) return { ok: true, json: async () => ({ items: Array.from({ length: 100 }, (_, i) => ({ vendor: 'p0-' + i })) }) };
+            if (offset === 100) return { ok: true, json: async () => ({ items: Array.from({ length: 100 }, (_, i) => ({ vendor: 'p1-' + i })) }) };
+            if (offset === 200) return { ok: true, json: async () => ({ items: Array.from({ length: 30 }, (_, i) => ({ vendor: 'p2-' + i })) }) };
+            throw new Error('unexpected offset ' + offset);
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const result = await fetchAllShoppingTrips();
+        expect(result.items.length).toBe(230);
+        expect(calls.length).toBe(3);
+        expect(calls[0]).toContain('offset=0');
+        expect(calls[0]).toContain('limit=100');
+        expect(calls[0]).toContain('/api/v1/trip_orders');
+        expect(calls[1]).toContain('offset=100');
+        expect(calls[2]).toContain('offset=200');
+    });
+
+    it('stops after one short page when nothing is present', async () => {
+        const fetchMock = vi.fn(async () => ({
+            ok: true,
+            json: async () => ({ items: [{ vendor: 'only' }] })
+        }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const result = await fetchAllShoppingTrips();
+        expect(result.items).toEqual([{ vendor: 'only' }]);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws on non-ok response', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })));
+        await expect(fetchAllShoppingTrips()).rejects.toThrow(/500/);
     });
 });
 

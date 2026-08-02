@@ -4,10 +4,10 @@
 // picked from detectMode() when we're on a canonical path.
 
 import {
-    CONFIG,
     createTabbedUI,
     detectMode,
     fetchAllOffersTrips,
+    fetchAllShoppingTrips,
     getCurrentSite,
     processTripsData,
     renderTripsToModal
@@ -45,11 +45,9 @@ import type { BrowseData, TripsData } from './types.js';
 
     async function loadTrips(): Promise<TripsData> {
         if (currentSite === 'shopping') {
-            const response = await fetch(CONFIG.shopping.trips.apiEndpoint, {
-                credentials: 'include'
-            });
-            if (!response.ok) throw new Error(`API returned ${response.status}`);
-            return processTripsData(await response.json());
+            // Walk all pages of /api/v1/trip_orders — no hasMore field, so the
+            // paginator stops on a short page.
+            return processTripsData(await fetchAllShoppingTrips());
         }
         // Offers: walk all pages via hasMore, not just the first 100.
         return processTripsData(await fetchAllOffersTrips());

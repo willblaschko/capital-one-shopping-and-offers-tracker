@@ -150,6 +150,7 @@ interface MockCoreExports {
     processTripsData: (raw: unknown) => TripsData;
     renderTripsToModal: unknown;
     fetchAllOffersTrips: ReturnType<typeof vi.fn>;
+    fetchAllShoppingTrips: ReturnType<typeof vi.fn>;
     createTabbedUI: (opts: {
         title: string;
         defaultTabId: string;
@@ -240,6 +241,7 @@ function makeMocks(opts: {
         processTripsData: (raw: unknown) => raw as TripsData,
         renderTripsToModal: tripsRenderer,
         fetchAllOffersTrips: vi.fn(async () => ({ data: [] })),
+        fetchAllShoppingTrips: vi.fn(async () => ({ items: [] })),
         createTabbedUI
     };
 
@@ -319,26 +321,20 @@ describe('bookmarklet-full entry — tabbed UI construction', () => {
         expect(m.createTabbedUICalls[0]!.defaultTabId).toBe('trips');
     });
 
-    it('Trips tab onActivate hits the shopping trips endpoint via fetch', async () => {
+    it('Trips tab on shopping routes through fetchAllShoppingTrips (pagination)', async () => {
         window.location.href = 'https://capitaloneshopping.com/';
         const m = makeMocks({ site: 'shopping', mode: 'trips' });
-        const fetchMock = vi.fn().mockResolvedValue({
-            ok: true,
-            json: async () => ({ items: [{ vendor: 'X', orderId: '1' }] })
-        } as Response);
-        vi.stubGlobal('fetch', fetchMock);
+        m.core.fetchAllShoppingTrips.mockResolvedValue({ items: [{ vendor: 'X', orderId: '1' }] });
         vi.doMock('../src/core.js', () => m.core);
         vi.doMock('../src/browse.js', () => m.browse);
 
         await import('../src/bookmarklet-full.js');
         await new Promise((r) => setTimeout(r, 0));
-        await new Promise((r) => setTimeout(r, 0));
 
         const tripsTab = m.createTabbedUICalls[0]!.tabs.find((t) => t.id === 'trips')!;
         expect(tripsTab.onActivate).toBeDefined();
         const data = await tripsTab.onActivate!();
-        expect(fetchMock).toHaveBeenCalled();
-        expect(String(fetchMock.mock.calls[0]![0])).toContain('/api/v1/trip_orders');
+        expect(m.core.fetchAllShoppingTrips).toHaveBeenCalled();
         expect(data).toBeTruthy();
     });
 

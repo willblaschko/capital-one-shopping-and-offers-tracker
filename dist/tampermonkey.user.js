@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.2.1
+// @version      3.2.2
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*
@@ -141,6 +141,22 @@
       if (body.hasMore !== true || items.length === 0) break;
     }
     return { data: all };
+  }
+  var SHOPPING_TRIPS_PAGE_SIZE = 100;
+  var SHOPPING_TRIPS_MAX_PAGES = 50;
+  async function fetchAllShoppingTrips() {
+    const all = [];
+    for (let page = 0; page < SHOPPING_TRIPS_MAX_PAGES; page++) {
+      const offset = page * SHOPPING_TRIPS_PAGE_SIZE;
+      const url = "/api/v1/trip_orders?limit=" + SHOPPING_TRIPS_PAGE_SIZE + "&offset=" + offset + "&sort=desc";
+      const r = await fetch(url, { credentials: "include" });
+      if (!r.ok) throw new Error("trip_orders returned " + r.status);
+      const body = await r.json();
+      const items = Array.isArray(body.items) ? body.items : [];
+      all.push(...items);
+      if (items.length < SHOPPING_TRIPS_PAGE_SIZE) break;
+    }
+    return { items: all };
   }
   var STYLES = `
     #c1t-fab {
@@ -1681,11 +1697,7 @@
     console.log("[C1 Tracker] Initialized on", currentSite, "site");
     async function loadTrips() {
       if (currentSite === "shopping") {
-        const r = await fetch(CONFIG.shopping.trips.apiEndpoint, {
-          credentials: "include"
-        });
-        if (!r.ok) throw new Error(`API returned ${r.status}`);
-        return processTripsData(await r.json());
+        return processTripsData(await fetchAllShoppingTrips());
       }
       return processTripsData(await fetchAllOffersTrips());
     }
@@ -1740,7 +1752,15 @@
       if (currentSite === "offers") {
         const wrapped = data;
         if (wrapped && wrapped.hasMore === true) {
-          console.log("[C1 Tracker] Intercepted trips page 1 with hasMore=true; deferring to paginator");
+          console.log("[C1 Tracker] Intercepted offers trips page 1 with hasMore=true; deferring to paginator");
+          return;
+        }
+      }
+      if (currentSite === "shopping") {
+        const wrapped = data;
+        const itemCount = Array.isArray(wrapped?.items) ? wrapped.items.length : 0;
+        if (itemCount >= 50) {
+          console.log("[C1 Tracker] Intercepted shopping trips page appears full (", itemCount, "); deferring to paginator");
           return;
         }
       }

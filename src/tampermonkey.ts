@@ -13,6 +13,7 @@ import {
     createTabbedUI,
     detectMode,
     fetchAllOffersTrips,
+    fetchAllShoppingTrips,
     getCurrentSite,
     processTripsData,
     renderTripsToModal
@@ -42,11 +43,9 @@ import type { BrowseData, TripsData } from './types.js';
 
     async function loadTrips(): Promise<TripsData> {
         if (currentSite === 'shopping') {
-            const r = await fetch(CONFIG.shopping.trips.apiEndpoint, {
-                credentials: 'include'
-            });
-            if (!r.ok) throw new Error(`API returned ${r.status}`);
-            return processTripsData(await r.json());
+            // Walk all pages of /api/v1/trip_orders — no hasMore field, so the
+            // paginator stops on a short page.
+            return processTripsData(await fetchAllShoppingTrips());
         }
         // Offers: walk all pages via hasMore, not just the first 100.
         return processTripsData(await fetchAllOffersTrips());
@@ -118,7 +117,18 @@ import type { BrowseData, TripsData } from './types.js';
         if (currentSite === 'offers') {
             const wrapped = data as { hasMore?: boolean } | null | undefined;
             if (wrapped && wrapped.hasMore === true) {
-                console.log('[C1 Tracker] Intercepted trips page 1 with hasMore=true; deferring to paginator');
+                console.log('[C1 Tracker] Intercepted offers trips page 1 with hasMore=true; deferring to paginator');
+                return;
+            }
+        }
+        // On shopping, the response is {items, offset, limit} — no hasMore. If we
+        // got a full page (Cap One's SPA typically requests limit=50), assume
+        // there's more and let the paginator take over on FAB open.
+        if (currentSite === 'shopping') {
+            const wrapped = data as { items?: unknown[] } | null | undefined;
+            const itemCount = Array.isArray(wrapped?.items) ? wrapped.items.length : 0;
+            if (itemCount >= 50) {
+                console.log('[C1 Tracker] Intercepted shopping trips page appears full (', itemCount, '); deferring to paginator');
                 return;
             }
         }

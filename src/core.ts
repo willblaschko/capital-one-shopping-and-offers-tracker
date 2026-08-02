@@ -213,6 +213,36 @@ export async function fetchAllOffersTrips(): Promise<{ data: RawTrip[] }> {
 }
 
 //=============================================================================
+// Shopping trips paginator — /api/v1/trip_orders returns {items, offset, limit}
+// with no hasMore field. Walk until a short page comes back (len < limit).
+//=============================================================================
+
+const SHOPPING_TRIPS_PAGE_SIZE = 100;
+const SHOPPING_TRIPS_MAX_PAGES = 50; // 5,000 trip ceiling — safety net
+
+/**
+ * Fetch every page of the shopping trips API. Termination: any page shorter
+ * than SHOPPING_TRIPS_PAGE_SIZE means we've hit the end. Response envelope is
+ * {items: RawTrip[]}, which extractTripsArray already unwraps.
+ */
+export async function fetchAllShoppingTrips(): Promise<{ items: RawTrip[] }> {
+    const all: RawTrip[] = [];
+    for (let page = 0; page < SHOPPING_TRIPS_MAX_PAGES; page++) {
+        const offset = page * SHOPPING_TRIPS_PAGE_SIZE;
+        const url =
+            '/api/v1/trip_orders?limit=' + SHOPPING_TRIPS_PAGE_SIZE +
+            '&offset=' + offset + '&sort=desc';
+        const r = await fetch(url, { credentials: 'include' });
+        if (!r.ok) throw new Error('trip_orders returned ' + r.status);
+        const body = (await r.json()) as { items?: RawTrip[] };
+        const items = Array.isArray(body.items) ? body.items : [];
+        all.push(...items);
+        if (items.length < SHOPPING_TRIPS_PAGE_SIZE) break;
+    }
+    return { items: all };
+}
+
+//=============================================================================
 // UI LAYER - Styles and Components
 //=============================================================================
 
