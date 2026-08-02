@@ -21,9 +21,13 @@ export const CONFIG: ConfigMap = {
         trips: {
             apiPattern: (url: string) => url.includes('/xhr/shopping-trips'),
             // First-page endpoint. For the full paginated set, use fetchAllOffersTrips().
+            // Cap One's server keeps returning trips under BOTH the old status names
+            // (Waiting/Inactive) and the new ones (Pending/Ineligible), plus Activated
+            // for card-linked offers. Send every known value so nothing is silently dropped.
             apiEndpoint:
                 '/xhr/shopping-trips?limit=100&offset=0' +
-                '&status[]=Adjusted&status[]=Completed&status[]=Ineligible&status[]=Pending'
+                '&status[]=Activated&status[]=Adjusted&status[]=Completed' +
+                '&status[]=Inactive&status[]=Ineligible&status[]=Pending&status[]=Waiting'
         },
         browse: {
             apiPattern: (url: string) =>
@@ -184,9 +188,11 @@ export function processTripsData(rawData: unknown): TripsData {
 
 const OFFERS_TRIPS_PAGE_SIZE = 100;
 const OFFERS_TRIPS_MAX_PAGES = 50; // 5,000 trip ceiling — safety net, not a real limit
+// See CONFIG.offers.trips.apiEndpoint for why all seven status values are included.
 const OFFERS_TRIPS_BASE =
     '/xhr/shopping-trips?limit=' + OFFERS_TRIPS_PAGE_SIZE +
-    '&status[]=Adjusted&status[]=Completed&status[]=Ineligible&status[]=Pending';
+    '&status[]=Activated&status[]=Adjusted&status[]=Completed' +
+    '&status[]=Inactive&status[]=Ineligible&status[]=Pending&status[]=Waiting';
 
 /**
  * Fetch every page of the offers trips API and return them in a single
@@ -446,6 +452,7 @@ export const STYLES = `
     .c1t-status.created { background: #ff9800 !important; }
     .c1t-status.canceled { background: #f44336 !important; }
     .c1t-status.adjusted { background: #2196f3 !important; }
+    .c1t-status.activated { background: #7e57c2 !important; }
     .c1t-credit { color: #69f0ae !important; font-weight: 600 !important; }
     .c1t-amount { font-weight: 600 !important; }
 
@@ -684,6 +691,7 @@ export function getStatusClass(status: string | null | undefined): string {
     if (s === 'pending ?') return 'pending-uncertain';
     if (s.includes('pending')) return 'pending-uncertain';
     if (s.includes('created')) return 'created';
+    if (s.includes('activated')) return 'activated';
     if (s.includes('cancel')) return 'canceled';
     if (s.includes('adjust')) return 'adjusted';
     return '';

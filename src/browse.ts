@@ -789,10 +789,13 @@ export async function fetchOffersBrowseContext(): Promise<OffersBrowseContext | 
 
     // Pull userId from the offers trips API — every entry carries accountReferenceId.
     // Response envelope is {data: [...], hasMore: boolean}; we only need the first row.
+    // Include all known status names (old + new + Activated) so a limit=1 response
+    // isn't empty for users whose newest trip is in a status we forgot to ask for.
     try {
         const r = await fetch(
             '/xhr/shopping-trips?limit=1&offset=0' +
-                '&status[]=Adjusted&status[]=Completed&status[]=Ineligible&status[]=Pending',
+                '&status[]=Activated&status[]=Adjusted&status[]=Completed' +
+                '&status[]=Inactive&status[]=Ineligible&status[]=Pending&status[]=Waiting',
             { method: 'POST', credentials: 'include' }
         );
         if (r.ok) {
