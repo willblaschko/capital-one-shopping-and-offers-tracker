@@ -881,6 +881,34 @@ describe('walkFeed 429 retry', () => {
         expect(fetchMock).toHaveBeenCalledTimes(1);
         expect(r.items).toHaveLength(0);
     });
+
+    it('honors Cloudflare 1015 retry_after from the JSON body when the header is absent', async () => {
+        // First call: 429 with CF body {"retry_after": 0} (no Retry-After header).
+        // Second call: 200 with a normal feed page.
+        const page = { cursor: null, data: [offersStandard] };
+        const fetchMock = vi.fn<typeof fetch>()
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 429,
+                headers: new Headers(), // no Retry-After
+                // clone() must return something with a working .json()
+                clone: () => ({
+                    json: async () => ({
+                        error_code: 1015,
+                        retry_after: 0
+                    })
+                })
+            } as unknown as Response)
+            .mockResolvedValueOnce({
+                ok: true,
+                json: async () => page
+            } as Response);
+        vi.stubGlobal('fetch', fetchMock);
+
+        const r = await walkOffersFeed(ctx);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(r.items).toHaveLength(1);
+    });
 });
 
 //=============================================================================

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.1.2
+// @version      3.1.3
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*
@@ -870,9 +870,9 @@
   }
 
   // src/browse.ts
-  var PAGE_DELAY_MS = 300;
+  var PAGE_DELAY_MS = 750;
   var MAX_RATE_LIMIT_RETRIES = 4;
-  var BACKOFF_BASE_MS = 500;
+  var BACKOFF_BASE_MS = 5e3;
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -891,9 +891,18 @@
           console.warn("[C1 Tracker] 429 retries exhausted", { url: input });
           return r;
         }
-        const retryAfter = parseRetryAfter(r.headers.get("Retry-After"));
-        const backoff = retryAfter ?? BACKOFF_BASE_MS * Math.pow(2, attempt);
-        const jitter = Math.floor(Math.random() * 250);
+        let hintMs = parseRetryAfter(r.headers.get("Retry-After"));
+        if (hintMs == null) {
+          try {
+            const body = await r.clone().json();
+            if (typeof body?.retry_after === "number" && body.retry_after >= 0) {
+              hintMs = Math.min(body.retry_after * 1e3, 6e4);
+            }
+          } catch {
+          }
+        }
+        const backoff = hintMs ?? BACKOFF_BASE_MS * Math.pow(2, attempt);
+        const jitter = Math.floor(Math.random() * 500);
         const waitMs = backoff + jitter;
         console.warn("[C1 Tracker] 429 rate-limited; waiting", waitMs, "ms", {
           attempt: attempt + 1,
@@ -944,7 +953,7 @@
       const parsed = parseRewardDisplay(cat.cashback);
       if (parsed.value > 0) {
         if (!best || parsed.value > best.value) {
-          best = { value: parsed.value, display: cat.cashback };
+          best = { type: parsed.type, value: parsed.value, display: cat.cashback };
         }
       }
     }
@@ -978,7 +987,7 @@
     if (isCut) {
       const best = maxCutTier(stats.cashbackCategories);
       if (best) {
-        rewardType = "percent";
+        rewardType = best.type;
         rewardValue = best.value;
         const trimmedDisplay = best.display.trim();
         rewardDisplay = trimmedDisplay.toLowerCase().startsWith("up to") ? trimmedDisplay : "Up to " + trimmedDisplay;

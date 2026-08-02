@@ -41,9 +41,12 @@ import type {
 
 // Mutable so tests can drop the delay to 0 without waiting real wall-clock time.
 // Not intended for runtime tuning — use PAGE_DELAY_MS as the effective knob.
-let PAGE_DELAY_MS = 300;           // gap between successive page fetches
+let PAGE_DELAY_MS = 750;           // gap between successive page fetches
 const MAX_RATE_LIMIT_RETRIES = 4;  // per-page retry ceiling on 429
-const BACKOFF_BASE_MS = 500;       // 500ms, 1s, 2s, 4s (+ up to 250ms jitter each)
+// Cloudflare 1015 asks for 30s+ waits; start heavy so we don't spam through it.
+// 5s → 10s → 20s → 40s (+ up to 500ms jitter each). Retry-After / retry_after
+// override this when the server tells us how long to wait.
+const BACKOFF_BASE_MS = 5000;
 
 /** Test hook — set the inter-page delay (and effectively disable it with 0). */
 export function _setPageDelayForTests(ms: number): void {
@@ -66,6 +69,11 @@ function parseRetryAfter(header: string | null): number | null {
  * fetch() that transparently retries on 429. Any other non-ok response
  * (403/500/etc.) returns immediately — the walker decides what to do.
  * Returns null if we ran out of retries or the fetch itself threw.
+ *
+ * Wait length priority:
+ *   1. Retry-After header (standard)
+ *   2. Cloudflare 1015 body's `retry_after` field (seconds)
+ *   3. Exponential fallback (BACKOFF_BASE_MS × 2^attempt)
  */
 async function fetchWithRetry(
     input: string,
@@ -79,9 +87,18 @@ async function fetchWithRetry(
                 console.warn('[C1 Tracker] 429 retries exhausted', { url: input });
                 return r;
             }
-            const retryAfter = parseRetryAfter(r.headers.get('Retry-After'));
-            const backoff = retryAfter ?? BACKOFF_BASE_MS * Math.pow(2, attempt);
-            const jitter = Math.floor(Math.random() * 250);
+            let hintMs = parseRetryAfter(r.headers.get('Retry-After'));
+            if (hintMs == null) {
+                // Cloudflare 1015 puts the wait hint in the JSON body, not the header.
+                try {
+                    const body = await r.clone().json() as { retry_after?: number };
+                    if (typeof body?.retry_after === 'number' && body.retry_after >= 0) {
+                        hintMs = Math.min(body.retry_after * 1000, 60_000);
+                    }
+                } catch { /* body not JSON — fall through */ }
+            }
+            const backoff = hintMs ?? BACKOFF_BASE_MS * Math.pow(2, attempt);
+            const jitter = Math.floor(Math.random() * 500);
             const waitMs = backoff + jitter;
             console.warn('[C1 Tracker] 429 rate-limited; waiting', waitMs, 'ms', {
                 attempt: attempt + 1,
@@ -152,14 +169,21 @@ function pickShoppingRewardDisplay(item: RawShoppingFeedItem): string {
     return stats.cashbackV2 ?? stats.cashback ?? stats.cashbackAmount ?? '';
 }
 
-function maxCutTier(categories: CashbackCategory[] | undefined): { value: number; display: string } | null {
+function maxCutTier(
+    categories: CashbackCategory[] | undefined
+): { type: RewardType; value: number; display: string } | null {
+    // NB: "cut" items historically had percent tiers (5%, 10%, 15%) but Cap One
+    // now uses cut for anything with tiered payouts — including dollar bounties
+    // like "$300" for Verizon and "$225" for DIRECTV. We keep the type from the
+    // winning tier's own parse rather than forcing 'percent', otherwise
+    // fixed-cash rewards mis-bucket.
     if (!categories || !categories.length) return null;
-    let best: { value: number; display: string } | null = null;
+    let best: { type: RewardType; value: number; display: string } | null = null;
     for (const cat of categories) {
         const parsed = parseRewardDisplay(cat.cashback);
         if (parsed.value > 0) {
             if (!best || parsed.value > best.value) {
-                best = { value: parsed.value, display: cat.cashback };
+                best = { type: parsed.type, value: parsed.value, display: cat.cashback };
             }
         }
     }
@@ -202,7 +226,7 @@ export function normalizeShoppingOffer(raw: RawShoppingFeedItem): Offer | null {
     if (isCut) {
         const best = maxCutTier(stats.cashbackCategories as CashbackCategory[] | undefined);
         if (best) {
-            rewardType = 'percent';
+            rewardType = best.type;
             rewardValue = best.value;
             // Prefix with "Up to" if not already
             const trimmedDisplay = best.display.trim();
