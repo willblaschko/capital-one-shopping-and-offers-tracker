@@ -197,8 +197,14 @@ const OFFERS_TRIPS_BASE =
 /**
  * Fetch every page of the offers trips API and return them in a single
  * {data: [...]} envelope compatible with processTripsData.
+ *
+ * Optional onProgress fires after each page with the accumulated items so
+ * callers can render partial results as the walk unfolds (better TTFR on
+ * long histories under the 750ms throttle).
  */
-export async function fetchAllOffersTrips(): Promise<{ data: RawTrip[] }> {
+export async function fetchAllOffersTrips(
+    opts: { onProgress?: (itemsSoFar: RawTrip[], pagesWalked: number) => void } = {}
+): Promise<{ data: RawTrip[] }> {
     const all: RawTrip[] = [];
     for (let page = 0; page < OFFERS_TRIPS_MAX_PAGES; page++) {
         const url = OFFERS_TRIPS_BASE + '&offset=' + page * OFFERS_TRIPS_PAGE_SIZE;
@@ -207,6 +213,7 @@ export async function fetchAllOffersTrips(): Promise<{ data: RawTrip[] }> {
         const body = (await r.json()) as { data?: RawTrip[]; hasMore?: boolean };
         const items = Array.isArray(body.data) ? body.data : [];
         all.push(...items);
+        opts.onProgress?.(all, page + 1);
         if (body.hasMore !== true || items.length === 0) break;
     }
     return { data: all };
@@ -224,8 +231,13 @@ const SHOPPING_TRIPS_MAX_PAGES = 50; // 5,000 trip ceiling — safety net
  * Fetch every page of the shopping trips API. Termination: any page shorter
  * than SHOPPING_TRIPS_PAGE_SIZE means we've hit the end. Response envelope is
  * {items: RawTrip[]}, which extractTripsArray already unwraps.
+ *
+ * onProgress fires after each page with accumulated items — same contract as
+ * fetchAllOffersTrips, so callers can render partial data as it streams in.
  */
-export async function fetchAllShoppingTrips(): Promise<{ items: RawTrip[] }> {
+export async function fetchAllShoppingTrips(
+    opts: { onProgress?: (itemsSoFar: RawTrip[], pagesWalked: number) => void } = {}
+): Promise<{ items: RawTrip[] }> {
     const all: RawTrip[] = [];
     for (let page = 0; page < SHOPPING_TRIPS_MAX_PAGES; page++) {
         const offset = page * SHOPPING_TRIPS_PAGE_SIZE;
@@ -237,6 +249,7 @@ export async function fetchAllShoppingTrips(): Promise<{ items: RawTrip[] }> {
         const body = (await r.json()) as { items?: RawTrip[] };
         const items = Array.isArray(body.items) ? body.items : [];
         all.push(...items);
+        opts.onProgress?.(all, page + 1);
         if (items.length < SHOPPING_TRIPS_PAGE_SIZE) break;
     }
     return { items: all };
@@ -406,6 +419,15 @@ export const STYLES = `
     }
     #c1t-stats strong {
         color: #69f0ae !important;
+    }
+    #c1t-stats .c1t-loading-pill {
+        background: rgba(255, 179, 0, 0.25) !important;
+        padding: 3px 10px !important;
+        border-radius: 12px !important;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        color: #ffe082 !important;
+        margin-left: 8px !important;
     }
 
     #c1t-filters {
@@ -751,12 +773,22 @@ export const renderTripsToModal: RenderFn<TripsData> = (overlay, data) => {
     );
     if (!content) return;
 
+    // Preserve table scroll position across incremental renders so streaming
+    // updates don't jump the user back to the top on every page.
+    const prevWrap = content.querySelector<HTMLElement>('#c1t-table-wrap');
+    const prevScroll = prevWrap?.scrollTop ?? 0;
+
+    const loadingPill = stats.isLoading
+        ? `<span class="stat c1t-loading-pill">⏳ ${escapeHtml(stats.loadingText ?? 'Loading…')}</span>`
+        : '';
+
     content.innerHTML = `
         <div id="c1t-stats">
             <span class="stat"><strong>${stats.total}</strong> total</span>
             <span class="stat"><strong>${stats.withOrderId}</strong> tracked</span>
             <span class="stat"><strong>${stats.withAmount}</strong> with amount</span>
             <span class="stat"><strong>${stats.withCredit}</strong> with cashback</span>
+            ${loadingPill}
         </div>
         <div id="c1t-filters">
             <button class="c1t-filter-btn active" data-filter="all">All (${stats.total})</button>
@@ -833,6 +865,10 @@ export const renderTripsToModal: RenderFn<TripsData> = (overlay, data) => {
             </details>
         </div>
     `;
+
+    // Restore prior scroll position — makes streaming updates non-jumpy.
+    const nextWrap = content.querySelector<HTMLElement>('#c1t-table-wrap');
+    if (nextWrap && prevScroll > 0) nextWrap.scrollTop = prevScroll;
 
     content.querySelectorAll<HTMLButtonElement>('.c1t-filter-btn').forEach((btn) => {
         btn.addEventListener('click', function (this: HTMLButtonElement) {

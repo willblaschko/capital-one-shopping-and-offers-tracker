@@ -61,6 +61,10 @@ export interface TripStats {
     withCredit: number;
     pending: number;
     created: number;
+    /** True while a paginator is still walking; render shows a live progress pill. */
+    isLoading?: boolean;
+    /** Text for the loading pill, e.g. "Loading page 3 (240 trips)". */
+    loadingText?: string;
 }
 
 export interface TripsData {

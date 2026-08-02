@@ -25,7 +25,7 @@ import {
     walkOffersFeed,
     walkShoppingFeed
 } from './browse.js';
-import type { BrowseData, TripsData } from './types.js';
+import type { BrowseData, TabbedUIHandle, TripsData } from './types.js';
 
 (function () {
     'use strict';
@@ -41,14 +41,33 @@ import type { BrowseData, TripsData } from './types.js';
     // fallback (when hasMore=true means the page only loaded a partial set).
     //-------------------------------------------------------------------------
 
+    // Forward declare so loadTrips's onProgress can push partial data into the
+    // active tab as pages stream in. Assigned after createTabbedUI below.
+    let ui: TabbedUIHandle;
+
+    // Wraps accumulated raw items into a partial TripsData with a loading pill.
+    function emitPartial(itemsSoFar: unknown, pagesWalked: number, envelopeKey: 'data' | 'items'): void {
+        if (!ui) return;
+        const envelope = envelopeKey === 'data' ? { data: itemsSoFar } : { items: itemsSoFar };
+        const partial = processTripsData(envelope);
+        partial.stats.isLoading = true;
+        partial.stats.loadingText = `Loading page ${pagesWalked} (${partial.stats.total} trips)`;
+        ui.setTabData('trips', partial);
+    }
+
     async function loadTrips(): Promise<TripsData> {
         if (currentSite === 'shopping') {
             // Walk all pages of /api/v1/trip_orders — no hasMore field, so the
-            // paginator stops on a short page.
-            return processTripsData(await fetchAllShoppingTrips());
+            // paginator stops on a short page. onProgress streams partial data
+            // into the trips tab so the user sees rows as they arrive.
+            return processTripsData(await fetchAllShoppingTrips({
+                onProgress: (items, pages) => emitPartial(items, pages, 'items')
+            }));
         }
         // Offers: walk all pages via hasMore, not just the first 100.
-        return processTripsData(await fetchAllOffersTrips());
+        return processTripsData(await fetchAllOffersTrips({
+            onProgress: (items, pages) => emitPartial(items, pages, 'data')
+        }));
     }
 
     async function loadBrowse(): Promise<BrowseData> {
@@ -83,7 +102,7 @@ import type { BrowseData, TripsData } from './types.js';
 
     const initialMode = detectMode();
     const siteLabel = currentSite === 'offers' ? 'Cap One Offers' : 'Cap One Shopping';
-    const ui = createTabbedUI({
+    ui = createTabbedUI({
         title: `${siteLabel} Tracker`,
         defaultTabId: initialMode === 'browse' ? 'browse' : 'trips',
         tabs: [

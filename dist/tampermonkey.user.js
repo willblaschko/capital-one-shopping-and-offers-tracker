@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.2.2
+// @version      3.3.0
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*
@@ -129,7 +129,7 @@
   var OFFERS_TRIPS_PAGE_SIZE = 100;
   var OFFERS_TRIPS_MAX_PAGES = 50;
   var OFFERS_TRIPS_BASE = "/xhr/shopping-trips?limit=" + OFFERS_TRIPS_PAGE_SIZE + "&status[]=Activated&status[]=Adjusted&status[]=Completed&status[]=Inactive&status[]=Ineligible&status[]=Pending&status[]=Waiting";
-  async function fetchAllOffersTrips() {
+  async function fetchAllOffersTrips(opts = {}) {
     const all = [];
     for (let page = 0; page < OFFERS_TRIPS_MAX_PAGES; page++) {
       const url = OFFERS_TRIPS_BASE + "&offset=" + page * OFFERS_TRIPS_PAGE_SIZE;
@@ -138,13 +138,14 @@
       const body = await r.json();
       const items = Array.isArray(body.data) ? body.data : [];
       all.push(...items);
+      opts.onProgress?.(all, page + 1);
       if (body.hasMore !== true || items.length === 0) break;
     }
     return { data: all };
   }
   var SHOPPING_TRIPS_PAGE_SIZE = 100;
   var SHOPPING_TRIPS_MAX_PAGES = 50;
-  async function fetchAllShoppingTrips() {
+  async function fetchAllShoppingTrips(opts = {}) {
     const all = [];
     for (let page = 0; page < SHOPPING_TRIPS_MAX_PAGES; page++) {
       const offset = page * SHOPPING_TRIPS_PAGE_SIZE;
@@ -154,6 +155,7 @@
       const body = await r.json();
       const items = Array.isArray(body.items) ? body.items : [];
       all.push(...items);
+      opts.onProgress?.(all, page + 1);
       if (items.length < SHOPPING_TRIPS_PAGE_SIZE) break;
     }
     return { items: all };
@@ -318,6 +320,15 @@
     }
     #c1t-stats strong {
         color: #69f0ae !important;
+    }
+    #c1t-stats .c1t-loading-pill {
+        background: rgba(255, 179, 0, 0.25) !important;
+        padding: 3px 10px !important;
+        border-radius: 12px !important;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        color: #ffe082 !important;
+        margin-left: 8px !important;
     }
 
     #c1t-filters {
@@ -651,12 +662,16 @@
       trips?.length
     );
     if (!content) return;
+    const prevWrap = content.querySelector("#c1t-table-wrap");
+    const prevScroll = prevWrap?.scrollTop ?? 0;
+    const loadingPill = stats.isLoading ? `<span class="stat c1t-loading-pill">\u23F3 ${escapeHtml(stats.loadingText ?? "Loading\u2026")}</span>` : "";
     content.innerHTML = `
         <div id="c1t-stats">
             <span class="stat"><strong>${stats.total}</strong> total</span>
             <span class="stat"><strong>${stats.withOrderId}</strong> tracked</span>
             <span class="stat"><strong>${stats.withAmount}</strong> with amount</span>
             <span class="stat"><strong>${stats.withCredit}</strong> with cashback</span>
+            ${loadingPill}
         </div>
         <div id="c1t-filters">
             <button class="c1t-filter-btn active" data-filter="all">All (${stats.total})</button>
@@ -715,6 +730,8 @@
             </details>
         </div>
     `;
+    const nextWrap = content.querySelector("#c1t-table-wrap");
+    if (nextWrap && prevScroll > 0) nextWrap.scrollTop = prevScroll;
     content.querySelectorAll(".c1t-filter-btn").forEach((btn) => {
       btn.addEventListener("click", function() {
         content.querySelectorAll(".c1t-filter-btn").forEach((b) => b.classList.remove("active"));
@@ -1695,11 +1712,24 @@
     if (!maybeSite) return;
     const currentSite = maybeSite;
     console.log("[C1 Tracker] Initialized on", currentSite, "site");
+    let ui;
+    function emitPartial(itemsSoFar, pagesWalked, envelopeKey) {
+      if (!ui) return;
+      const envelope = envelopeKey === "data" ? { data: itemsSoFar } : { items: itemsSoFar };
+      const partial = processTripsData(envelope);
+      partial.stats.isLoading = true;
+      partial.stats.loadingText = `Loading page ${pagesWalked} (${partial.stats.total} trips)`;
+      ui.setTabData("trips", partial);
+    }
     async function loadTrips() {
       if (currentSite === "shopping") {
-        return processTripsData(await fetchAllShoppingTrips());
+        return processTripsData(await fetchAllShoppingTrips({
+          onProgress: (items, pages) => emitPartial(items, pages, "items")
+        }));
       }
-      return processTripsData(await fetchAllOffersTrips());
+      return processTripsData(await fetchAllOffersTrips({
+        onProgress: (items, pages) => emitPartial(items, pages, "data")
+      }));
     }
     async function loadBrowse() {
       const onPage = (pages, total) => {
@@ -1727,7 +1757,7 @@
     }
     const initialMode = detectMode();
     const siteLabel = currentSite === "offers" ? "Cap One Offers" : "Cap One Shopping";
-    const ui = createTabbedUI({
+    ui = createTabbedUI({
       title: `${siteLabel} Tracker`,
       defaultTabId: initialMode === "browse" ? "browse" : "trips",
       tabs: [

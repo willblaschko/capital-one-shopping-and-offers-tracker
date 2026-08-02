@@ -358,6 +358,23 @@ describe('fetchAllOffersTrips', () => {
         vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })));
         await expect(fetchAllOffersTrips()).rejects.toThrow(/500/);
     });
+
+    it('onProgress fires after each page with accumulated items', async () => {
+        const fetchMock = vi.fn(async (url: unknown) => {
+            const offset = Number(String(url).match(/offset=(\d+)/)?.[1] ?? 0);
+            if (offset === 0) return { ok: true, json: async () => ({ data: [{ vendor: 'a' }, { vendor: 'b' }], hasMore: true }) };
+            if (offset === 100) return { ok: true, json: async () => ({ data: [{ vendor: 'c' }], hasMore: false }) };
+            throw new Error('unexpected offset');
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const snapshots: Array<{ len: number; pages: number }> = [];
+        const result = await fetchAllOffersTrips({
+            onProgress: (items, pages) => snapshots.push({ len: items.length, pages })
+        });
+        expect(snapshots).toEqual([{ len: 2, pages: 1 }, { len: 3, pages: 2 }]);
+        expect(result.data.length).toBe(3);
+    });
 });
 
 //-----------------------------------------------------------------------------
@@ -408,6 +425,22 @@ describe('fetchAllShoppingTrips', () => {
     it('throws on non-ok response', async () => {
         vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })));
         await expect(fetchAllShoppingTrips()).rejects.toThrow(/500/);
+    });
+
+    it('onProgress fires after each page with accumulated items', async () => {
+        const fetchMock = vi.fn(async (url: unknown) => {
+            const offset = Number(String(url).match(/offset=(\d+)/)?.[1] ?? 0);
+            if (offset === 0) return { ok: true, json: async () => ({ items: Array.from({ length: 100 }, (_, i) => ({ vendor: 'a' + i })) }) };
+            if (offset === 100) return { ok: true, json: async () => ({ items: [{ vendor: 'z' }] }) };
+            throw new Error('unexpected offset');
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const snapshots: Array<{ len: number; pages: number }> = [];
+        await fetchAllShoppingTrips({
+            onProgress: (items, pages) => snapshots.push({ len: items.length, pages })
+        });
+        expect(snapshots).toEqual([{ len: 100, pages: 1 }, { len: 101, pages: 2 }]);
     });
 });
 
@@ -588,6 +621,45 @@ describe('renderTripsToModal', () => {
         const overlay = document.createElement('div');
         const data: TripsData = processTripsData([]);
         expect(() => renderTripsToModal(overlay, data)).not.toThrow();
+    });
+
+    it('shows the loading pill in the stats bar when stats.isLoading=true', () => {
+        const overlay = document.createElement('div');
+        overlay.id = 'c1t-overlay';
+        overlay.innerHTML = '<div id="c1t-content"></div>';
+        document.body.appendChild(overlay);
+
+        const data: TripsData = processTripsData([{ vendor: 'X', status: 'Completed' }]);
+        data.stats.isLoading = true;
+        data.stats.loadingText = 'Loading page 3 (250 trips)';
+        renderTripsToModal(overlay, data);
+
+        const pill = overlay.querySelector('.c1t-loading-pill');
+        expect(pill).not.toBeNull();
+        expect(pill!.textContent).toContain('Loading page 3');
+    });
+
+    it('preserves table-wrap scrollTop across incremental re-renders', () => {
+        const overlay = document.createElement('div');
+        overlay.id = 'c1t-overlay';
+        overlay.innerHTML = '<div id="c1t-content"></div>';
+        document.body.appendChild(overlay);
+
+        // First render — plenty of rows so the wrap has scrollable height.
+        const many = Array.from({ length: 30 }, (_, i) => ({
+            vendor: 'V' + i, orderId: String(i), orderAmount: 10, creditAmount: 1, status: 'Completed'
+        }));
+        renderTripsToModal(overlay, processTripsData(many));
+
+        const wrap = overlay.querySelector<HTMLElement>('#c1t-table-wrap')!;
+        // happy-dom doesn't compute real layout, so simulate scroll by assigning.
+        wrap.scrollTop = 123;
+
+        // Second render — same data, should preserve scroll.
+        renderTripsToModal(overlay, processTripsData(many));
+
+        const wrap2 = overlay.querySelector<HTMLElement>('#c1t-table-wrap')!;
+        expect(wrap2.scrollTop).toBe(123);
     });
 });
 
