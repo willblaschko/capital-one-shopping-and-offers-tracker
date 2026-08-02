@@ -256,12 +256,26 @@ export interface RawOffersFeedResponse {
     data: RawOffersFeedTile[];
 }
 
-// Response from POST /feed/{userId}/offers/{tileId}?_data
+// Response from POST /xhr/feed/{userId}/offers/{tileId}
+// Discriminated across offer sources:
+//   - affiliate offers  → { affiliate: { redirectUrl, ... } } (browser navigates)
+//   - card-linked offers → { cardLinked: { isActivated, activationId, ... } } (no redirect;
+//                          the offer is now attached to the user's card server-side)
 export interface RawOffersActivationResponse {
     affiliate?: {
         redirectUrl: string;
         loyaltyTripReferenceId?: string;
         welcomeBackMarkdownText?: string;
+    };
+    cardLinked?: {
+        merchantTLD?: string;
+        offerExpiresAt?: string;
+        ctaButtonText?: string;
+        cardLinkedOfferDetail?: {
+            isActivated?: boolean;
+            activationId?: string;
+            activationLimitsReached?: boolean;
+        };
     };
 }
 

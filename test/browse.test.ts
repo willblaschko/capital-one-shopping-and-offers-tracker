@@ -552,15 +552,16 @@ describe('normalizeOffersFeedTile', () => {
         expect(out[0].activation.method).toBe('post-offers');
     });
 
-    it('builds activation URL with URL-encoded userId and raw tileId', () => {
+    it('builds activation URL against /xhr/feed/{userId}/offers/{tileId}', () => {
         const out = normalizeOffersFeedTile(offersStandard, ctx);
         const expectedUserId = encodeURIComponent(ctx.userId);
         // Verify userId is URL-encoded
         expect(out[0].activation.url).toContain(expectedUserId);
         // Verify tileId is included raw (not double-encoded)
         expect(out[0].activation.url).toContain(offersStandard.id!);
-        expect(out[0].activation.url).toMatch(/\?_data$/);
-        expect(out[0].activation.url.startsWith('https://capitaloneoffers.com/feed/')).toBe(true);
+        // /xhr/ prefix (Cap One's post-refactor convention), no ?_data suffix
+        expect(out[0].activation.url.startsWith('https://capitaloneoffers.com/xhr/feed/')).toBe(true);
+        expect(out[0].activation.url).not.toMatch(/\?_data/);
     });
 
     it('encodes userId with "+" -> "%2B" (Cap One IDs commonly contain +)', () => {

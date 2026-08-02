@@ -258,7 +258,7 @@ export function normalizeShoppingOffer(raw: RawShoppingFeedItem): Offer | null {
 //=============================================================================
 
 function offersActivationUrl(ctx: OffersBrowseContext, tileId: string): string {
-    return `https://capitaloneoffers.com/feed/${encodeURIComponent(ctx.userId)}/offers/${tileId}?_data`;
+    return `https://capitaloneoffers.com/xhr/feed/${encodeURIComponent(ctx.userId)}/offers/${tileId}`;
 }
 
 /**
@@ -903,18 +903,37 @@ function handleHrefClick(row: HTMLElement): void {
 async function handlePostOffersClick(row: HTMLElement): Promise<void> {
     const url = row.dataset.activationUrl;
     if (!url) return;
+    const merchant = row.dataset.merchant ?? 'merchant';
     // Sync open to preserve user-gesture; popup blockers ratchet down on async open.
     const tab = window.open('about:blank', '_blank') as (Window & { location: string | Location }) | null;
     try {
         const r = await fetch(url, { method: 'POST', credentials: 'include' });
+        if (!r.ok) throw new Error(`Activation returned ${r.status}`);
         const data = await r.json() as RawOffersActivationResponse;
+
+        // Affiliate offer → redirect the popup tab to the signed merchant URL.
         const redirect = data?.affiliate?.redirectUrl;
         if (redirect && tab) {
             tab.location = redirect;
-        } else if (tab) {
-            tab.close?.();
-            alert('Activation failed — try clicking the tile on Cap One directly.');
+            return;
         }
+
+        // Card-linked offer → server-side activation is complete; there's no
+        // merchant URL to navigate to. Close the popup and confirm.
+        const clo = data?.cardLinked?.cardLinkedOfferDetail;
+        if (data?.cardLinked && clo?.isActivated) {
+            tab?.close?.();
+            alert(`${merchant} card-linked offer activated. Use your card as usual — no redirect needed.`);
+            return;
+        }
+        if (data?.cardLinked?.cardLinkedOfferDetail?.activationLimitsReached) {
+            tab?.close?.();
+            alert('Card-linked activation limit reached — cancel an existing activation and try again.');
+            return;
+        }
+
+        tab?.close?.();
+        alert('Activation failed — response had no redirect and no card-linked activation.');
     } catch (e) {
         tab?.close?.();
         alert('Activation failed: ' + (e instanceof Error ? e.message : String(e)));

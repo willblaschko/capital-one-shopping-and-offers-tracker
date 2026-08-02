@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.1.1
+// @version      3.1.2
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*
@@ -1017,7 +1017,7 @@
     };
   }
   function offersActivationUrl(ctx, tileId) {
-    return `https://capitaloneoffers.com/feed/${encodeURIComponent(ctx.userId)}/offers/${tileId}?_data`;
+    return `https://capitaloneoffers.com/xhr/feed/${encodeURIComponent(ctx.userId)}/offers/${tileId}`;
   }
   function normalizeOffersFeedTile(raw, ctx) {
     if (raw.type === "Carousel") {
@@ -1489,17 +1489,30 @@
   async function handlePostOffersClick(row) {
     const url = row.dataset.activationUrl;
     if (!url) return;
+    const merchant = row.dataset.merchant ?? "merchant";
     const tab = window.open("about:blank", "_blank");
     try {
       const r = await fetch(url, { method: "POST", credentials: "include" });
+      if (!r.ok) throw new Error(`Activation returned ${r.status}`);
       const data = await r.json();
       const redirect = data?.affiliate?.redirectUrl;
       if (redirect && tab) {
         tab.location = redirect;
-      } else if (tab) {
-        tab.close?.();
-        alert("Activation failed \u2014 try clicking the tile on Cap One directly.");
+        return;
       }
+      const clo = data?.cardLinked?.cardLinkedOfferDetail;
+      if (data?.cardLinked && clo?.isActivated) {
+        tab?.close?.();
+        alert(`${merchant} card-linked offer activated. Use your card as usual \u2014 no redirect needed.`);
+        return;
+      }
+      if (data?.cardLinked?.cardLinkedOfferDetail?.activationLimitsReached) {
+        tab?.close?.();
+        alert("Card-linked activation limit reached \u2014 cancel an existing activation and try again.");
+        return;
+      }
+      tab?.close?.();
+      alert("Activation failed \u2014 response had no redirect and no card-linked activation.");
     } catch (e) {
       tab?.close?.();
       alert("Activation failed: " + (e instanceof Error ? e.message : String(e)));
