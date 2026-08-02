@@ -43,9 +43,13 @@ export function isBrowsePagePath(host: string, _path: string): boolean {
         return;
     }
 
-    // Load the full script from GitHub Pages
+    // Load the full script from GitHub Pages. Cache-bust with a timestamp so
+    // the browser + GH Pages CDN can't serve a stale bundle after a version bump.
+    // The 40KB payload is small enough that no-cache-per-click is fine.
     const s = document.createElement('script');
-    s.src = 'https://willblaschko.github.io/capital-one-shopping-and-offers-tracker/bookmarklet-full.js';
+    s.src =
+        'https://willblaschko.github.io/capital-one-shopping-and-offers-tracker/bookmarklet-full.js?t=' +
+        Date.now();
     s.onerror = function () {
         alert('Failed to load tracker script. Check your internet connection.');
     };

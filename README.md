@@ -6,6 +6,15 @@ View hidden trip data **and** browse every available offer with smart sorting on
 
 ## What's New
 
+**2026-08-02** — Streaming render, dev-tool dark theme, offers activation refactor, real shopping-trips pagination
+- **Streaming**: both trips and browse walk-and-render — the modal fills in as each page arrives instead of waiting for the whole walk. New `onProgress(items, pages)` callback in every paginator (`fetchAllOffersTrips`, `fetchAllShoppingTrips`, `walkOffersFeed`, `walkShoppingFeed`) → both entry points wire it to `ui.setTabData(...)`. Renderers show an amber "Loading page N (X so far)" pill, preserve table scroll position, and preserve the browse search box's value / focus / selection across incremental re-renders. Big TTFR win under the 750ms throttle + CF 1015 retries.
+- **Dev-tool dark theme**: dropped the indigo gradient + emoji brand for a compact Linear/VS-Code aesthetic. Solid dark surfaces (`#17181a` base, `#1e2023` elevated), one accent (One Dark blue `#61afef`), outlined status pills (4 semantic buckets instead of 7 hues), tabular-nums, monospace raw-JSON block, and an SVG bar-chart icon (`FAB_ICON_SVG`) in place of 📋. FAB shrinks 56px round → 44px rounded square with a border-accent hover.
+- **Offers activation, take three**: `POST /xhr/feed/{userId}/offers/{tileId}` (dropped the retired `?_data` loader URL). Response is discriminated: `{affiliate: {redirectUrl, loyaltyTripReferenceId, shoppingTripId, welcomeBackMarkdownText}}` for affiliate offers, `{cardLinked: {cardLinkedOfferDetail: {isActivated, activationId, activationLimitsReached}}}` for card-linked. Handler tolerates both flat and `{success, offer: {...}}` wrapped shapes since Cap One emits either at different times.
+- **Shopping-trips paginator**: `/api/v1/trip_orders` returns `{items, offset, limit}` with no `hasMore` field. `fetchAllShoppingTrips()` walks `?limit=100&offset=N&sort=desc` and terminates on a short page. Interceptor gate mirrors the offers logic: if the intercepted response has ≥50 items (Cap One's default page size), treat as page-1-of-many and defer to the paginator.
+- **Broader trips status filter**: `Activated`, `Adjusted`, `Completed`, `Inactive`, `Ineligible`, `Pending`, `Waiting` — Cap One serves trips under both old and new status names simultaneously, and we were dropping several of them. `Activated` (card-linked offers live on a card, waiting for a swipe) gets its own accent-colored outline; older `Inactive` collapses onto `Canceled` alongside the newer `Ineligible`.
+- **Trips modal enrichment**: two new columns from the `/xhr/shopping-trips` payload we were already fetching but not reading — **Rate** (summary display rate, e.g. "Up to 3X miles") and **Exclusions** (one-line truncated with `(more)/(less)` toggle mirroring the browse-side pattern). Shopping trips get em-dashes for these fields since the shopping API doesn't carry them.
+- **Rate-limit hardening**: 300 → 750ms inter-page throttle, backoff base bumped from 500ms to 5s (5s → 10s → 20s → 40s per retry). `fetchWithRetry` now honors Cloudflare 1015's `retry_after` field from the JSON body when the `Retry-After` header is absent.
+
 **2026-07-31** — Tabbed modal + always-on FAB per site
 - One FAB per site now, always visible on any `capitaloneshopping.com` or `capitaloneoffers.com` URL. No more mode-switching between separate Trips and Browse FABs, no more "wrong page" gates. When Cap One shuffles page paths, we stop caring.
 - Opening the FAB shows a tabbed modal with **Trips** and **Browse**. Each tab lazy-loads on first activation and caches for the rest of the session (no re-fetching on tab switches).
@@ -38,20 +47,23 @@ View hidden trip data **and** browse every available offer with smart sorting on
 
 ## Features
 
-### Trips view (existing pages)
+### Trips view
 - Shows order amounts (often hidden in the UI)
-- Shows actual cashback/miles earned
+- Shows actual cashback/miles earned + the offer's advertised **Rate** (e.g. "Up to 3X miles")
+- Shows per-offer **Exclusions** with `(more)/(less)` expand toggle
 - Corrects misleading status labels ("Canceled" → "Completed" when cashback was paid)
 - Distinguishes pending trips with assigned cashback vs uncertain ones
 - Filter by status, tracked orders, or cashback amounts
+- **Streams** — rows appear as pagination pages arrive; amber loading pill in the stats bar shows current page
 
-### Browse Offers view (new — homepage + offers feed)
+### Browse Offers view
 - Walks the full paginated feed (capped at 40 pages, dedupes same merchant + same reward)
 - Sorts by value within each reward unit so "best deals" surface first
 - Search across merchant, reward text, item type, and exclusions
-- Click any row to activate the correct variant in a new tab
+- Click any row to activate the correct variant in a new tab (affiliate offers → merchant redirect; card-linked → activated on-card with a confirmation)
 - Inline attribute badges: Events (limited time), Price Drops, New Customer, Recently Viewed
 - Showcase tiles surface their rich subtitle/heading description
+- **Streams** — offers appear in their value buckets as each page returns; search input value + focus preserved across incremental re-renders
 
 ## Installation
 
@@ -83,12 +95,13 @@ The FAB now appears on **any** URL of `capitaloneshopping.com` or `capitaloneoff
 
 | Status | Meaning |
 |--------|---------|
-| **Completed** | Cashback was paid (even if API says "Canceled") |
+| **Completed** | Cashback / miles were paid (even if API says "Canceled") |
 | **Pending ✓** | Pending with cashback assigned — likely to succeed |
 | **Pending ?** | Pending without cashback — uncertain outcome |
-| **Created** | Click tracked, waiting for purchase confirmation |
+| **Created** | Click tracked, waiting for purchase confirmation (legacy "Waiting") |
+| **Activated** | Card-linked offer live on your card, waiting for a qualifying swipe |
 | **Adjusted** | Order amount was modified |
-| **Canceled** | No cashback paid, tracking ended |
+| **Canceled** | No cashback paid, tracking ended (also legacy "Inactive" / "Ineligible") |
 
 ## Development
 

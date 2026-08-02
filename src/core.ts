@@ -323,7 +323,7 @@ export const STYLES = `
         right: -6px !important;
         background: var(--c1t-accent) !important;
         color: var(--c1t-bg) !important;
-        font-size: 10px !important;
+        font-size: 12px !important;
         font-weight: 600 !important;
         padding: 2px 6px !important;
         border-radius: 8px !important;
@@ -378,7 +378,7 @@ export const STYLES = `
     }
     #c1t-header h2 {
         margin: 0 !important;
-        font-size: 13px !important;
+        font-size: 15px !important;
         font-weight: 600 !important;
         color: var(--c1t-text) !important;
         letter-spacing: 0.01em !important;
@@ -396,7 +396,7 @@ export const STYLES = `
         min-width: 24px !important;
         border-radius: 5px !important;
         cursor: pointer !important;
-        font-size: 13px !important;
+        font-size: 15px !important;
         line-height: 1 !important;
         display: flex !important;
         align-items: center !important;
@@ -423,7 +423,7 @@ export const STYLES = `
         color: var(--c1t-text-muted) !important;
         padding: 9px 14px !important;
         cursor: pointer !important;
-        font-size: 12px !important;
+        font-size: 14px !important;
         font-weight: 500 !important;
         font-family: var(--c1t-font) !important;
         border-bottom: 2px solid transparent !important;
@@ -438,7 +438,7 @@ export const STYLES = `
         padding: 8px 16px !important;
         background: var(--c1t-bg-elevated) !important;
         border-bottom: 1px solid var(--c1t-border) !important;
-        font-size: 12px !important;
+        font-size: 14px !important;
         color: var(--c1t-text-muted) !important;
         flex-shrink: 0 !important;
         display: flex !important;
@@ -453,7 +453,7 @@ export const STYLES = `
         color: var(--c1t-attention) !important;
         padding: 2px 8px !important;
         border-radius: 4px !important;
-        font-size: 11px !important;
+        font-size: 13px !important;
         font-weight: 500 !important;
         margin-left: auto !important;
         background: transparent !important;
@@ -476,7 +476,7 @@ export const STYLES = `
         padding: 3px 10px !important;
         border-radius: 4px !important;
         cursor: pointer !important;
-        font-size: 11px !important;
+        font-size: 13px !important;
         font-family: var(--c1t-font) !important;
         transition: color 0.12s, border-color 0.12s, background 0.12s !important;
     }
@@ -496,7 +496,7 @@ export const STYLES = `
     #c1t-table {
         width: 100% !important;
         border-collapse: collapse !important;
-        font-size: 12px !important;
+        font-size: 14px !important;
         color: var(--c1t-text) !important;
     }
     #c1t-table th {
@@ -504,7 +504,7 @@ export const STYLES = `
         padding: 8px 12px !important;
         border-bottom: 1px solid var(--c1t-border) !important;
         font-weight: 500 !important;
-        font-size: 10px !important;
+        font-size: 12px !important;
         text-transform: uppercase !important;
         letter-spacing: 0.06em !important;
         position: sticky !important;
@@ -531,7 +531,7 @@ export const STYLES = `
         display: inline-block !important;
         padding: 2px 7px !important;
         border-radius: 4px !important;
-        font-size: 10px !important;
+        font-size: 12px !important;
         font-weight: 500 !important;
         letter-spacing: 0.02em !important;
         background: transparent !important;
@@ -567,7 +567,7 @@ export const STYLES = `
         background: var(--c1t-bg-elevated) !important;
         flex-shrink: 0 !important;
     }
-    #c1t-footer details { font-size: 11px !important; color: var(--c1t-text-muted) !important; }
+    #c1t-footer details { font-size: 13px !important; color: var(--c1t-text-muted) !important; }
     #c1t-footer summary { cursor: pointer !important; color: var(--c1t-text-muted) !important; }
     #c1t-footer summary:hover { color: var(--c1t-text) !important; }
     #c1t-footer pre {
@@ -577,7 +577,7 @@ export const STYLES = `
         border-radius: 6px !important;
         overflow: auto !important;
         max-height: 220px !important;
-        font-size: 11px !important;
+        font-size: 13px !important;
         margin-top: 8px !important;
         color: var(--c1t-text) !important;
         font-family: var(--c1t-font-mono) !important;
@@ -588,7 +588,7 @@ export const STYLES = `
         padding: 40px 20px !important;
         text-align: center !important;
         color: var(--c1t-text-muted) !important;
-        font-size: 12px !important;
+        font-size: 14px !important;
     }
     #c1t-content {
         display: flex !important;
@@ -613,7 +613,7 @@ export const STYLES = `
         border: 1px solid var(--c1t-border) !important;
         background: var(--c1t-bg-elevated) !important;
         color: var(--c1t-text) !important;
-        font-size: 12px !important;
+        font-size: 14px !important;
         font-family: var(--c1t-font) !important;
         outline: none !important;
         transition: border-color 0.12s !important;
@@ -627,7 +627,7 @@ export const STYLES = `
         padding: 0 10px !important;
         border-radius: 6px !important;
         cursor: pointer !important;
-        font-size: 11px !important;
+        font-size: 13px !important;
         font-family: var(--c1t-font) !important;
         transition: color 0.12s, border-color 0.12s !important;
     }
@@ -647,14 +647,14 @@ export const STYLES = `
         padding: 3px 9px !important;
         border-radius: 4px !important;
         cursor: pointer !important;
-        font-size: 11px !important;
+        font-size: 13px !important;
         font-family: var(--c1t-font) !important;
         transition: color 0.12s, border-color 0.12s !important;
     }
     .c1t-jump-chip:hover { color: var(--c1t-text) !important; border-color: var(--c1t-border-strong) !important; }
     #c1t-browse-stats {
         padding: 6px 14px !important;
-        font-size: 11px !important;
+        font-size: 13px !important;
         color: var(--c1t-text-muted) !important;
         border-bottom: 1px solid var(--c1t-border) !important;
         flex-shrink: 0 !important;
@@ -674,7 +674,7 @@ export const STYLES = `
         padding: 8px 12px !important;
         cursor: pointer !important;
         font-weight: 500 !important;
-        font-size: 12px !important;
+        font-size: 14px !important;
         color: var(--c1t-text) !important;
         list-style: none !important;
         user-select: none !important;
@@ -685,20 +685,20 @@ export const STYLES = `
     .c1t-bucket > summary::-webkit-details-marker { display: none !important; }
     .c1t-bucket > summary::before {
         content: '▸' !important;
-        font-size: 10px !important;
+        font-size: 12px !important;
         color: var(--c1t-text-muted) !important;
         transition: transform 0.12s !important;
     }
     .c1t-bucket[open] > summary::before { transform: rotate(90deg) !important; }
-    .c1t-bucket-count { color: var(--c1t-text-muted) !important; font-weight: 400 !important; font-size: 11px !important; }
-    .c1t-bucket table { width: 100% !important; border-collapse: collapse !important; font-size: 12px !important; }
+    .c1t-bucket-count { color: var(--c1t-text-muted) !important; font-weight: 400 !important; font-size: 13px !important; }
+    .c1t-bucket table { width: 100% !important; border-collapse: collapse !important; font-size: 14px !important; }
     .c1t-bucket th {
         text-align: left !important;
         padding: 6px 10px !important;
         border-top: 1px solid var(--c1t-border) !important;
         border-bottom: 1px solid var(--c1t-border) !important;
         font-weight: 500 !important;
-        font-size: 10px !important;
+        font-size: 12px !important;
         color: var(--c1t-text-muted) !important;
         text-transform: uppercase !important;
         letter-spacing: 0.06em !important;
@@ -720,7 +720,7 @@ export const STYLES = `
         display: inline-block !important;
         padding: 1px 6px !important;
         border-radius: 3px !important;
-        font-size: 10px !important;
+        font-size: 12px !important;
         font-weight: 500 !important;
         background: transparent !important;
         color: var(--c1t-text-muted) !important;
@@ -732,7 +732,7 @@ export const STYLES = `
     .c1t-pill.new { color: var(--c1t-accent) !important; border-color: rgba(97, 175, 239, 0.4) !important; }
 
     .c1t-excl-cell {
-        font-size: 11px !important;
+        font-size: 13px !important;
         color: var(--c1t-text-muted) !important;
         display: flex !important;
         align-items: baseline !important;
@@ -760,14 +760,14 @@ export const STYLES = `
         color: var(--c1t-accent) !important;
         cursor: pointer !important;
         font: inherit !important;
-        font-size: 11px !important;
+        font-size: 13px !important;
         text-decoration: none !important;
     }
     .c1t-excl-toggle:hover { text-decoration: underline !important; }
-    .c1t-event-end { font-size: 11px !important; color: var(--c1t-text-muted) !important; white-space: nowrap !important; }
+    .c1t-event-end { font-size: 13px !important; color: var(--c1t-text-muted) !important; white-space: nowrap !important; }
     #c1t-browse-footer {
         padding: 8px 14px !important;
-        font-size: 11px !important;
+        font-size: 13px !important;
         color: var(--c1t-text-muted) !important;
         border-top: 1px solid var(--c1t-border) !important;
         background: var(--c1t-bg-elevated) !important;
