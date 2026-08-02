@@ -542,20 +542,23 @@ describe('createTabbedUI', () => {
         });
         const fab = ui.ensureFab();
 
-        // No data yet → no badge, no has-data class
+        // No data yet → no badge, no has-data class. Icon renders as an SVG.
         expect(fab.classList.contains('has-data')).toBe(false);
-        expect(fab.innerHTML).toBe('📋');
+        expect(fab.innerHTML).toContain('<svg');
+        expect(fab.innerHTML).not.toContain('class="badge"');
 
-        // Trips data with count > 0 → badge appears
+        // Trips data with count > 0 → badge appears alongside the icon
         ui.setTabData('trips', { withCredit: 7 });
         expect(fab.classList.contains('has-data')).toBe(true);
+        expect(fab.innerHTML).toContain('<svg');
         expect(fab.innerHTML).toContain('class="badge"');
         expect(fab.innerHTML).toContain('7');
 
         // Trips data with count === 0 → has-data but no badge
         ui.setTabData('trips', { withCredit: 0 });
         expect(fab.classList.contains('has-data')).toBe(true);
-        expect(fab.innerHTML).toBe('📋');
+        expect(fab.innerHTML).toContain('<svg');
+        expect(fab.innerHTML).not.toContain('class="badge"');
     });
 
     it('clicking a tab button in the overlay switches active tab', async () => {
