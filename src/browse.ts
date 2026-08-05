@@ -525,14 +525,20 @@ function shoppingFeedBody(cursor: string | null): string {
 }
 
 function shoppingDedupeKey(item: RawShoppingFeedItem): string | null {
+    // Cap One surfaces the same merchant+rate across multiple placement types
+    // (great_deal, event_placement, nca_deal, retarget, ...) each with its own
+    // `id`. Deduping by id kept them all — visually three "Temu 41%" rows with
+    // different badges. Composite (merchant, reward) collapses them to one.
+    // Mirrors the offers-side approach of `${tld}|${buttonText}`.
+    const merch = item.merchantName ?? '';
+    const reward = item.stats?.cashbackV2 ?? item.stats?.cashback ?? '';
+    if (merch && reward) return `${merch}|${reward}`;
+    // Last-resort fallback: tile id if the merchant/reward pair is missing.
     const anyItem = item as { id?: string | number };
     if (anyItem.id !== undefined && anyItem.id !== null && anyItem.id !== '') {
         return String(anyItem.id);
     }
-    const merch = item.merchantName ?? '';
-    const reward = item.stats?.cashbackV2 ?? item.stats?.cashback ?? '';
-    if (!merch && !reward) return null;
-    return `${merch}|${reward}|${item.type}`;
+    return null;
 }
 
 export interface WalkOptions {

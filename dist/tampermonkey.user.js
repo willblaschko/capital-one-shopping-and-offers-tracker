@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.6.1
+// @version      3.6.2
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*
@@ -1410,14 +1410,14 @@
     });
   }
   function shoppingDedupeKey(item) {
+    const merch = item.merchantName ?? "";
+    const reward = item.stats?.cashbackV2 ?? item.stats?.cashback ?? "";
+    if (merch && reward) return `${merch}|${reward}`;
     const anyItem = item;
     if (anyItem.id !== void 0 && anyItem.id !== null && anyItem.id !== "") {
       return String(anyItem.id);
     }
-    const merch = item.merchantName ?? "";
-    const reward = item.stats?.cashbackV2 ?? item.stats?.cashback ?? "";
-    if (!merch && !reward) return null;
-    return `${merch}|${reward}|${item.type}`;
+    return null;
   }
   async function walkShoppingFeed(opts = {}) {
     const streamNormalized = opts.onProgress ? (items, pages) => {

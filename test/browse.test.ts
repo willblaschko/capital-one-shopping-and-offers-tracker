@@ -721,6 +721,35 @@ describe('walkShoppingFeed', () => {
         expect(r.items).toHaveLength(1);
     });
 
+    it('dedupes same merchant+reward across distinct-id tiles (Temu-style)', async () => {
+        // Cap One returns the same merchant+rate as multiple tiles across
+        // placement types, each with its own id. Before the composite-key fix
+        // we kept all three; now they should collapse to one.
+        const tile = (id: string, type: string, pill?: string) => ({
+            ...shoppingGreatDeal,
+            id,
+            type,
+            merchantName: 'Temu',
+            stats: { ...shoppingGreatDeal.stats, cashbackV2: '41%' },
+            ...(pill ? { pill: { text: pill } } : {})
+        });
+        const page = {
+            pagination: { nextPageToken: null },
+            items: [
+                tile('id-1', 'great_deal'),
+                tile('id-2', 'event_placement', 'Exclusive Offer'),
+                tile('id-3', 'nca_deal', 'Exclusive Deal')
+            ]
+        };
+        const fetchMock = vi.fn<typeof fetch>()
+            .mockResolvedValue({ ok: true, json: async () => page } as Response);
+        vi.stubGlobal('fetch', fetchMock);
+
+        const r = await walkShoppingFeed();
+        expect(r.items).toHaveLength(1);
+        expect(r.items[0]!.merchant).toBe('Temu');
+    });
+
     it('respects maxPages=120 cap and reports hitCap=true', async () => {
         // Always returns a page with a next-token and one item — would otherwise loop forever
         let counter = 0;
