@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.6.0
+// @version      3.6.1
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*
@@ -1354,7 +1354,7 @@
     return { offers, buckets, bucketOrder, stats };
   }
   async function walkFeed(cfg) {
-    const maxPages = cfg.maxPages ?? 40;
+    const maxPages = cfg.maxPages ?? 120;
     const seen = /* @__PURE__ */ new Set();
     const out = [];
     let cursor = null;
@@ -1459,7 +1459,7 @@
       dedupeKey: shoppingDedupeKey,
       ...opts.onPage ? { onPage: opts.onPage } : {},
       ...streamNormalized ? { onProgress: streamNormalized } : {},
-      maxPages: 40
+      maxPages: 120
     };
     const walked = await walkFeed(cfg);
     const offers = [];
@@ -1530,7 +1530,7 @@
       dedupeKey: offersDedupeKey,
       ...opts.onPage ? { onPage: opts.onPage } : {},
       ...streamNormalized ? { onProgress: streamNormalized } : {},
-      maxPages: 40
+      maxPages: 120
     };
     const walked = await walkFeed(cfg);
     const offers = [];

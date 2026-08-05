@@ -454,7 +454,10 @@ export function processBrowseData(offers: Offer[]): BrowseData {
 //=============================================================================
 
 async function walkFeed<TPage, TItem>(cfg: WalkFeedConfig<TPage, TItem>): Promise<WalkResult<TItem>> {
-    const maxPages = cfg.maxPages ?? 40;
+    // Default page ceiling. Callers override in walkShoppingFeed / walkOffersFeed
+    // configs. Safety net against Cap One's cursor accidentally looping — not
+    // an intended limit on real feed depth.
+    const maxPages = cfg.maxPages ?? 120;
     const seen = new Set<string>();
     const out: TItem[] = [];
     let cursor: string | null = null;
@@ -587,7 +590,7 @@ export async function walkShoppingFeed(opts: WalkOptions = {}): Promise<WalkResu
         dedupeKey: shoppingDedupeKey,
         ...(opts.onPage ? { onPage: opts.onPage } : {}),
         ...(streamNormalized ? { onProgress: streamNormalized } : {}),
-        maxPages: 40
+        maxPages: 120
     };
 
     const walked = await walkFeed(cfg);
@@ -679,7 +682,7 @@ export async function walkOffersFeed(
         dedupeKey: offersDedupeKey,
         ...(opts.onPage ? { onPage: opts.onPage } : {}),
         ...(streamNormalized ? { onProgress: streamNormalized } : {}),
-        maxPages: 40
+        maxPages: 120
     };
 
     const walked = await walkFeed(cfg);

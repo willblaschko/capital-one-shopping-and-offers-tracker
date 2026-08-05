@@ -721,7 +721,7 @@ describe('walkShoppingFeed', () => {
         expect(r.items).toHaveLength(1);
     });
 
-    it('respects maxPages=40 cap and reports hitCap=true', async () => {
+    it('respects maxPages=120 cap and reports hitCap=true', async () => {
         // Always returns a page with a next-token and one item — would otherwise loop forever
         let counter = 0;
         const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => ({
@@ -734,9 +734,9 @@ describe('walkShoppingFeed', () => {
         vi.stubGlobal('fetch', fetchMock);
 
         const r = await walkShoppingFeed();
-        expect(fetchMock).toHaveBeenCalledTimes(40);
+        expect(fetchMock).toHaveBeenCalledTimes(120);
         expect(r.hitCap).toBe(true);
-        expect(r.pagesWalked).toBe(40);
+        expect(r.pagesWalked).toBe(120);
     });
 
     it('invokes onPage callback after each page', async () => {
