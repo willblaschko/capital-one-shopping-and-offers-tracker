@@ -19,10 +19,22 @@ function pickEntry(stem) {
     throw new Error(`No entry found for ${stem} (.ts or .js)`);
 }
 
+// Single source of truth for the release version: src/core.ts's C1T_VERSION
+// export. Both the Tampermonkey @version header AND the (i) popover in the
+// modal read from it, so they can never drift.
+function readVersionFromCore() {
+    const src = fs.readFileSync(path.join(srcDir, 'core.ts'), 'utf8');
+    const m = src.match(/export\s+const\s+C1T_VERSION\s*=\s*['"]([^'"]+)['"]/);
+    if (!m) throw new Error('Could not find C1T_VERSION in src/core.ts');
+    return m[1];
+}
+
+const VERSION = readVersionFromCore();
+
 const TAMPERMONKEY_HEADER = `// ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.6.2
+// @version      ${VERSION}
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*

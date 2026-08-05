@@ -625,6 +625,36 @@ describe('createTabbedUI', () => {
         expect(banner.querySelector('.c1t-progress-label')!.textContent).toBe('Loading page 2 · 40 offers');
     });
 
+    it('info button toggles the version popover and shows C1T_VERSION', async () => {
+        // Import the version constant so the test breaks loudly if the popover
+        // ever renders a hard-coded string instead of reading from source.
+        const { C1T_VERSION } = await import('../src/core.js');
+
+        const ui = createTabbedUI({
+            title: 'X',
+            defaultTabId: 'trips',
+            tabs: [makeTabDef('trips')]
+        });
+        ui.ensureOverlay();
+
+        const infoBtn = document.querySelector<HTMLButtonElement>('#c1t-info');
+        const popover = document.querySelector<HTMLElement>('#c1t-info-popover');
+        expect(infoBtn).not.toBeNull();
+        expect(popover).not.toBeNull();
+
+        // Popover starts hidden.
+        expect(popover!.classList.contains('c1t-visible')).toBe(false);
+
+        infoBtn!.click();
+        expect(popover!.classList.contains('c1t-visible')).toBe(true);
+        expect(popover!.textContent).toContain(C1T_VERSION);
+        expect(popover!.textContent).toContain('Cap One');
+
+        // Click the info button again to close.
+        infoBtn!.click();
+        expect(popover!.classList.contains('c1t-visible')).toBe(false);
+    });
+
     it('banner auto-clears when a tab\'s onActivate promise resolves', async () => {
         const ui = createTabbedUI({
             title: 'X',

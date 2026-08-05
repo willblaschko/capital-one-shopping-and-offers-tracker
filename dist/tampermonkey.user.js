@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Capital One Shopping & Offers - Tracker FAB
 // @namespace    http://tampermonkey.net/
-// @version      3.6.2
+// @version      3.7.0
 // @description  Tracks hidden trip data and browses every available offer across Capital One Shopping and Offers
 // @author       Will Blaschko
 // @match        https://capitaloneoffers.com/*
@@ -17,6 +17,7 @@
 "use strict";
 (() => {
   // src/core.ts
+  var C1T_VERSION = "3.7.0";
   var CONFIG = {
     offers: {
       hostname: "capitaloneoffers",
@@ -161,6 +162,7 @@
     return { items: all };
   }
   var FAB_ICON_SVG = '<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15V10"/><path d="M10 15V5"/><path d="M16 15V8"/><path d="M3 17h14"/></svg>';
+  var INFO_ICON_SVG = '<svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="8"/><path d="M10 9v5"/><circle cx="10" cy="6.25" r="0.6" fill="currentColor" stroke="none"/></svg>';
   var STYLES = `
     /* --- Design tokens (scoped to our elements to avoid leaking to the host) --- */
     #c1t-fab, #c1t-overlay {
@@ -302,6 +304,81 @@
         transition: color 0.12s, border-color 0.12s !important;
     }
     #c1t-close:hover { color: var(--c1t-text) !important; border-color: var(--c1t-border-strong) !important; }
+    #c1t-header-actions {
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        position: relative !important;
+    }
+    #c1t-info {
+        background: transparent !important;
+        border: 1px solid var(--c1t-border) !important;
+        color: var(--c1t-text-muted) !important;
+        width: 24px !important;
+        height: 24px !important;
+        min-width: 24px !important;
+        border-radius: 5px !important;
+        cursor: pointer !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 0 !important;
+        box-sizing: border-box !important;
+        font-family: var(--c1t-font) !important;
+        transition: color 0.12s, border-color 0.12s !important;
+    }
+    #c1t-info:hover { color: var(--c1t-text) !important; border-color: var(--c1t-border-strong) !important; }
+    #c1t-info.c1t-active { color: var(--c1t-accent) !important; border-color: var(--c1t-accent) !important; }
+    #c1t-info-popover {
+        position: absolute !important;
+        top: calc(100% + 8px) !important;
+        right: 0 !important;
+        background: var(--c1t-bg-elevated) !important;
+        border: 1px solid var(--c1t-border-strong) !important;
+        border-radius: 6px !important;
+        padding: 12px 14px !important;
+        font-size: 13px !important;
+        color: var(--c1t-text) !important;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.5) !important;
+        min-width: 220px !important;
+        max-width: 300px !important;
+        z-index: 2 !important;
+        display: none !important;
+        line-height: 1.5 !important;
+    }
+    #c1t-info-popover.c1t-visible { display: block !important; }
+    #c1t-info-popover .c1t-info-row {
+        display: flex !important;
+        justify-content: space-between !important;
+        gap: 12px !important;
+        color: var(--c1t-text-muted) !important;
+        font-size: 12px !important;
+    }
+    #c1t-info-popover .c1t-info-row + .c1t-info-row { margin-top: 4px !important; }
+    #c1t-info-popover .c1t-info-value {
+        color: var(--c1t-text) !important;
+        font-variant-numeric: tabular-nums !important;
+        font-family: var(--c1t-font-mono) !important;
+        font-size: 12px !important;
+    }
+    #c1t-info-popover .c1t-info-title {
+        font-weight: 600 !important;
+        color: var(--c1t-text) !important;
+        font-size: 13px !important;
+        margin-bottom: 8px !important;
+    }
+    #c1t-info-popover a {
+        color: var(--c1t-accent) !important;
+        text-decoration: none !important;
+    }
+    #c1t-info-popover a:hover { text-decoration: underline !important; }
+    #c1t-info-popover .c1t-info-footer {
+        margin-top: 10px !important;
+        padding-top: 8px !important;
+        border-top: 1px solid var(--c1t-border) !important;
+        font-size: 11px !important;
+        color: var(--c1t-text-muted) !important;
+    }
 
     /* --- Tabs --- */
     #c1t-tabs {
@@ -942,7 +1019,26 @@
             <div id="c1t-modal">
                 <div id="c1t-header">
                     <h2>${FAB_ICON_SVG}<span>${escapeHtml(title)}</span></h2>
-                    <button id="c1t-close" aria-label="Close">\u2715</button>
+                    <div id="c1t-header-actions">
+                        <button id="c1t-info" aria-label="About / version" title="About">${INFO_ICON_SVG}</button>
+                        <button id="c1t-close" aria-label="Close">\u2715</button>
+                        <div id="c1t-info-popover" role="dialog" aria-label="About">
+                            <div class="c1t-info-title">Cap One Shopping &amp; Offers Tracker</div>
+                            <div class="c1t-info-row">
+                                <span>Version</span>
+                                <span class="c1t-info-value">${escapeHtml(C1T_VERSION)}</span>
+                            </div>
+                            <div class="c1t-info-row">
+                                <span>Site</span>
+                                <span class="c1t-info-value">${escapeHtml(getCurrentSite() ?? "unknown")}</span>
+                            </div>
+                            <div class="c1t-info-footer">
+                                <a href="https://github.com/willblaschko/capital-one-shopping-and-offers-tracker" target="_blank" rel="noopener">GitHub</a>
+                                &middot; From
+                                <a href="https://useyourcredits.com/" target="_blank" rel="noopener">UseYourCredits.com</a>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div id="c1t-tabs">
                     ${tabs.map(
@@ -963,6 +1059,20 @@
       });
       overlayEl.addEventListener("click", (e) => {
         if (e.target === overlayEl) overlayEl.classList.remove("open");
+      });
+      const infoBtn = overlayEl.querySelector("#c1t-info");
+      const popover = overlayEl.querySelector("#c1t-info-popover");
+      infoBtn?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        popover?.classList.toggle("c1t-visible");
+        infoBtn.classList.toggle("c1t-active");
+      });
+      popover?.addEventListener("click", (e) => e.stopPropagation());
+      overlayEl.addEventListener("click", () => {
+        if (popover?.classList.contains("c1t-visible")) {
+          popover.classList.remove("c1t-visible");
+          infoBtn?.classList.remove("c1t-active");
+        }
       });
       overlayEl.querySelectorAll(".c1t-tab").forEach((btn) => {
         btn.addEventListener("click", () => {
